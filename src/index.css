@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: hsl(0, 0%, 100%);
+  --color-foreground: hsl(0, 0%, 9%);
+  --color-card: hsl(210, 20%, 98%);
+  --color-text: hsl(221, 39%, 11%);
+}
+
+.dark {
+  --color-background: hsl(0, 0%, 4%);
+  --color-foreground: hsl(0, 0%, 93%);
+  --color-card: #27272a;
+  --color-text: hsl(220, 13%, 91%);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: #e5e7eb;
+  color: var(--color-foreground);
+  font-family: "Roboto Condensed", ui-sans-serif, system-ui, sans-serif;
+}
+
+.dark body {
+  background: #000;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: var(--color-card);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 8px;
+  border: 2px solid var(--color-card);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #5f5f66;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db var(--color-card);
+}
+
+.dark * {
+  scrollbar-color: #5f5f66 var(--color-card);
+}
