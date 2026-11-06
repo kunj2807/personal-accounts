@@ -59,7 +59,10 @@ export function AuthProvider({ children }) {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: name.trim() } },
+          options: {
+            data: { name: name.trim() },
+            emailRedirectTo: `${window.location.origin}/login`,
+          },
         })
         if (error) throw error
         return data
@@ -67,9 +70,8 @@ export function AuthProvider({ children }) {
       async sendReset(email) {
         if (!supabase) throw configError()
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${import.meta.env.VITE_SITE_URL}/reset-password`,
+          redirectTo: `${window.location.origin}/reset-password`,
         })
-        console.log(import.meta.env.VITE_SITE_URL)
         if (error) throw error
       },
       async updatePassword(password) {
