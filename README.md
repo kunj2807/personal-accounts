@@ -1,1 +1,1 @@
-"# personal-accounts improved" 
+"# personal-accounts improved with new functionality" 
