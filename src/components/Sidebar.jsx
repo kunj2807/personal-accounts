@@ -126,7 +126,7 @@ export default function Sidebar() {
           ))}
         </nav>
         <div className={cn('border-t border-zinc-200 px-4 py-3 text-center text-xs dark:border-zinc-700', collapsed && 'hidden')}>
-          <span className="inline-block rounded bg-zinc-200 px-2 py-1 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">© {new Date().getFullYear()} MyApp</span>
+          <span className="inline-block rounded bg-zinc-200 px-2 py-1 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">© {new Date().getFullYear()} Personal Accounts</span>
         </div>
       </aside>
       {mobileOpen && <div className="fixed inset-0 z-[101] bg-black/30 md:hidden" onClick={() => setMobileOpen(false)} />}
