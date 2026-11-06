@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import Chart from 'react-apexcharts'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { banksApi, categoriesApi, dashboardApi, lendingApi } from '../lib/api'
-import { formatAmount, formatDate } from '../lib/utils'
+import { formatAmount, formatDate, todayISO } from '../lib/utils'
 import { useResource } from '../lib/useResource'
 import { useTheme } from '../context/ThemeContext'
 import { Card, Input, Modal, NativeSelect, Spinner, Table } from '../components/ui'
@@ -46,6 +47,14 @@ export default function Dashboard() {
   const balances = useResource(() => dashboardApi.balances(), [])
   const categories = useResource(() => categoriesApi.list(), [])
   const banks = useResource(() => banksApi.list(), [])
+  const major = useResource(async () => {
+    const bounds = { from: daysAgoISO(30), to: todayISO() }
+    const [debits, credits] = await Promise.all([
+      dashboardApi.majorTransactions({ type: 'Debit', ...bounds, limit: 10 }),
+      dashboardApi.majorTransactions({ type: 'Credit', ...bounds, limit: 5 }),
+    ])
+    return { debits, credits }
+  }, [])
   const monthly = useResource(
     () => dashboardApi.monthly({ year, type: chartType, categories: selectedCategories.map((item) => item.id), banks: selectedBanks.map((item) => item.id) }),
     [year, chartType, selectedCategories, selectedBanks],
@@ -142,6 +151,20 @@ export default function Dashboard() {
         </Card>
       </div>
       <div className="w-full flex-grow p-2">
+        <Card title="Major Transactions">
+          {major.loading ? (
+            <div className="flex justify-center py-10"><Spinner /></div>
+          ) : major.error ? (
+            <div className="p-4 text-center text-red-500">{major.error}</div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <MajorList title="Top 10 Debits" tone="debit" rows={major.data?.debits || []} icon={ArrowDown} />
+              <MajorList title="Top 5 Credits" tone="credit" rows={major.data?.credits || []} icon={ArrowUp} />
+            </div>
+          )}
+        </Card>
+      </div>
+      <div className="w-full flex-grow p-2">
         <BalanceGrid title="Bank Accounts" accounts={balances.data?.banks || []} loading={balances.loading} showTotal />
         <div className="h-4" />
         <BalanceGrid title="Ledger Accounts" accounts={balances.data?.ledgers || []} loading={balances.loading} />
@@ -179,6 +202,55 @@ export default function Dashboard() {
             />
           )}
         </Card>
+      </div>
+    </div>
+  )
+}
+
+function daysAgoISO(days) {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function prettyDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return '-'
+  return `${match[3]} ${months[Number(match[2]) - 1]} ${match[1]}`
+}
+
+function MajorList({ title, tone, rows, icon: Icon }) {
+  const debit = tone === 'debit'
+  return (
+    <div className={`rounded-xl border p-4 ${debit ? 'border-red-100 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20' : 'border-green-100 bg-green-50/40 dark:border-green-900/40 dark:bg-green-950/20'}`}>
+      <div className="mb-3 flex items-center gap-3">
+        <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${debit ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-600'}`}>
+          <Icon size={16} />
+        </span>
+        <div>
+          <div className="font-semibold text-gray-800 dark:text-gray-100">{title}</div>
+          <div className="text-xs text-gray-400">Last 30 days</div>
+        </div>
+      </div>
+      <div className="max-h-[420px] divide-y divide-gray-100 p-2 overflow-y-auto dark:divide-zinc-800">
+        {rows.length === 0 ? (
+          <div className="py-8 text-center text-sm text-gray-400">No transactions</div>
+        ) : rows.map((row, index) => {
+          const meta = [row.category?.name, row.bank?.name].filter(Boolean).join(' · ')
+          return (
+            <div key={row.id} className="flex items-center gap-3 py-3">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${debit ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-600'}`}>{index + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-gray-800 dark:text-gray-100">{row.description?.trim() || '—'}</div>
+                {meta && <div className="truncate text-xs text-gray-400">{meta}</div>}
+                <div className="text-xs text-gray-400">{prettyDate(row.date)}</div>
+              </div>
+              <div className={`shrink-0 font-semibold ${debit ? 'text-red-500' : 'text-green-600'}`}>{formatAmount(row.amount)}</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

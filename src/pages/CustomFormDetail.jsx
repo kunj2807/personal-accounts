@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, ChevronsUpDown, Eye, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, ChevronsUpDown, Eye, FileSpreadsheet, FileText, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'react-toastify'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { BadgeButton, Button, Card, Input, Modal, NativeSelect, Pagination, Spinner, StatusWrapper, Table } from '../components/ui'
 import { formsApi } from '../lib/api'
 import { friendlyError } from '../lib/errors'
-import { formatDate } from '../lib/utils'
+import { askFilename, downloadWorkbook, formatDate, slugify } from '../lib/utils'
 import { useResource } from '../lib/useResource'
 
 export default function CustomFormDetail() {
@@ -23,6 +25,7 @@ export default function CustomFormDetail() {
   const [saving, setSaving] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deletingId, setDeletingId] = useState('')
+  const [exporting, setExporting] = useState('')
   const fields = form.data?.fields || []
   const rows = entries.data || []
   const visible = rows.slice((page - 1) * limit, page * limit)
@@ -75,6 +78,62 @@ export default function CustomFormDetail() {
     setSortDir(type === 'number' ? 'desc' : 'asc')
   }
 
+  const fileBase = slugify(form.data?.title) || 'custom-form'
+
+  const exportExcel = () => {
+    const name = askFilename(`${fileBase}.xlsx`)
+    if (!name) return
+    const header = fields.map((field) => field.name)
+    const body = rows.map((row) => fields.map((field) => excelCell(field, row.data?.[field.key])))
+    const totals = totalCells(fields, rows, false)
+    return downloadWorkbook(name, [header, ...body, ...(totals ? [totals] : [])], sheetName(form.data?.title))
+  }
+
+  const exportPdf = () => {
+    const name = askFilename(`${fileBase}.pdf`)
+    if (!name) return
+    const title = form.data?.title || 'Custom form'
+    const doc = new jsPDF({ orientation: fields.length > 4 ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.setTextColor(30, 41, 59)
+    const titleLines = doc.splitTextToSize(title, pageWidth - 28)
+    doc.text(titleLines, 14, 14)
+    const body = rows.map((row) => fields.map((field) => pdfCell(field, row.data?.[field.key])))
+    const totals = totalCells(fields, rows, true)
+    if (totals) body.push(totals)
+    autoTable(doc, {
+      startY: 14 + titleLines.length * 7 + 2,
+      margin: { top: 14, right: 14, bottom: 16, left: 14 },
+      head: [fields.map((field) => field.name)],
+      body,
+      theme: 'grid',
+      styles: { fontSize: fields.length > 6 ? 8 : 9, cellPadding: 2.2, overflow: 'linebreak', valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240], lineWidth: 0.1 },
+      headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      didParseCell: (data) => {
+        const field = fields[data.column.index]
+        if (field?.type === 'number') data.cell.styles.halign = 'right'
+        if (totals && data.section === 'body' && data.row.index === body.length - 1) {
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.fillColor = [226, 232, 240]
+        }
+      },
+    })
+    const totalPages = doc.getNumberOfPages()
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+      doc.setPage(pageNumber)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(100)
+      doc.text(doc.splitTextToSize(title, pageWidth - 50)[0], 14, pageHeight - 8)
+      doc.text(`Page ${pageNumber} of ${totalPages}`, pageWidth - 14, pageHeight - 8, { align: 'right' })
+    }
+    doc.save(name.endsWith('.pdf') ? name : `${name}.pdf`)
+  }
+
   const remove = async (entryId) => {
     if (deletingId) return
     if (!window.confirm('Delete this entry?')) return
@@ -103,22 +162,27 @@ export default function CustomFormDetail() {
         </StatusWrapper>
       </Card>
       <Card>
-        {Object.keys(totals).length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-3 text-sm">
-            {Object.entries(totals).map(([key, value]) => <span key={key} className="rounded bg-indigo-50 px-3 py-1 dark:bg-zinc-800">{key}: {value}</span>)}
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          {Object.keys(totals).length > 0 && (
+            <div className="flex flex-wrap gap-3 text-sm">
+              {Object.entries(totals).map(([key, value]) => <span key={key} className="rounded bg-indigo-50 px-3 py-1 dark:bg-zinc-800">{key}: {value}</span>)}
+            </div>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" className="flex items-center gap-2" loading={exporting === 'excel'} disabled={entries.loading || !fields.length || Boolean(exporting)} onClick={() => runExport(setExporting, 'excel', exportExcel)}><FileSpreadsheet size={16} /> Excel</Button>
+            <Button type="button" variant="secondary" className="flex items-center gap-2" loading={exporting === 'pdf'} disabled={entries.loading || !fields.length || Boolean(exporting)} onClick={() => runExport(setExporting, 'pdf', exportPdf)}><FileText size={16} /> PDF</Button>
           </div>
-        )}
+        </div>
         <StatusWrapper loading={entries.loading} error={entries.error} onRetry={entries.reload}>
           <Table
             page={page}
             limit={limit}
             data={visible}
             columns={[
-              { key: 'created_at', label: <SortHeader label="Date" active={sortKey === 'created_at'} direction={sortDir} onClick={() => toggleSort('created_at', 'text')} />, render: (row) => formatDate(row.created_at) },
               ...fields.map((field) => ({
                 key: field.key,
                 label: <SortHeader label={field.name} active={sortKey === field.key} direction={sortDir} onClick={() => toggleSort(field.key, field.type)} />,
-                render: (row) => String(row.data?.[field.key] ?? '-'),
+                render: (row) => displayValue(field, row.data?.[field.key]),
               })),
               { key: 'actions', label: 'Actions', render: (row) => (
                 <div className="flex justify-center gap-2">
@@ -141,7 +205,7 @@ export default function CustomFormDetail() {
               {fields.map((field) => (
                 <div key={field.key}>
                   <p className="mb-1 text-sm font-medium text-gray-500 dark:text-gray-400">{field.name}</p>
-                  <p className="text-sm text-gray-900 dark:text-gray-100">{String(view.data?.[field.key] ?? '-')}</p>
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{displayValue(field, view.data?.[field.key])}</p>
                 </div>
               ))}
             </div>
@@ -166,6 +230,64 @@ export default function CustomFormDetail() {
       </Modal>
     </div>
   )
+}
+
+function displayValue(field, value) {
+  if (value === undefined || value === null || value === '') return '-'
+  if (field.type === 'date') return formatDate(value)
+  return String(value)
+}
+
+function excelCell(field, value) {
+  if (value === undefined || value === null || value === '') return '-'
+  if (field.type === 'date') return formatDate(value)
+  if (field.type === 'number') {
+    const number = Number(value)
+    return Number.isFinite(number) ? number : '-'
+  }
+  return String(value)
+}
+
+function pdfCell(field, value) {
+  if (value === undefined || value === null || value === '') return '-'
+  if (field.type === 'date') return formatDate(value)
+  if (field.type === 'number') {
+    const number = Number(value)
+    if (!Number.isFinite(number)) return '-'
+    return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(number)
+  }
+  return String(value)
+}
+
+function totalCells(fields, rows, forPdf) {
+  if (!fields.some((field) => field.type === 'number' && field.total)) return null
+  let labeled = false
+  return fields.map((field) => {
+    if (field.type === 'number' && field.total) {
+      const sum = rows.reduce((total, row) => total + (Number(row.data?.[field.key]) || 0), 0)
+      return forPdf ? new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(sum) : sum
+    }
+    if (!labeled) {
+      labeled = true
+      return 'Total'
+    }
+    return ''
+  })
+}
+
+function sheetName(title) {
+  const name = String(title || 'Entries').replace(/[\\/?*[\]:]/g, ' ').trim() || 'Entries'
+  return name.slice(0, 31)
+}
+
+async function runExport(setExporting, kind, work) {
+  setExporting(kind)
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await work()
+  } finally {
+    setExporting('')
+  }
 }
 
 function SortHeader({ label, active, direction, onClick }) {

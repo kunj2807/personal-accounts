@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { BarChart2, Boxes, ChevronLeft, ChevronRight, CreditCard, DollarSign, File, FileText, LayoutDashboard } from 'lucide-react'
+import { ArrowLeftRight, BarChart2, Boxes, ChevronLeft, ChevronRight, CreditCard, DollarSign, File, FileText, LayoutDashboard } from 'lucide-react'
 import { formsApi } from '../lib/api'
 import { cn } from '../lib/utils'
 import { Separator, Title } from './ui'
@@ -10,6 +10,7 @@ const menuItems = [
   { icon: DollarSign, label: 'Income Expense', path: '/income-expense' },
   { icon: CreditCard, label: 'Lending Borrowing', path: '/lending-borrowing' },
   { icon: FileText, label: 'Deposite Withdraw', path: '/deposite-withdraw' },
+  { icon: ArrowLeftRight, label: 'Self Transfer', path: '/self-transfer' },
   { icon: File, label: 'Custom Form', path: '/custom-form' },
   {
     icon: Boxes,

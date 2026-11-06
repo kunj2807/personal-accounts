@@ -14,6 +14,7 @@ import LedgerStatement from './pages/LedgerStatement'
 import LendingBorrowing from './pages/LendingBorrowing'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
+import SelfTransfer from './pages/SelfTransfer'
 import Signup from './pages/Signup'
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="income-expense" element={<IncomeExpense />} />
           <Route path="lending-borrowing" element={<LendingBorrowing />} />
           <Route path="deposite-withdraw" element={<DepositWithdraw />} />
+          <Route path="self-transfer" element={<SelfTransfer />} />
           <Route path="custom-form" element={<CustomForms />} />
           <Route path="custom-form/:id" element={<CustomFormDetail />} />
           <Route path="masters/category" element={<CategoryMaster />} />

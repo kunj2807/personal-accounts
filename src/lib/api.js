@@ -376,6 +376,13 @@ function lendingRemaining(amount, type, items) {
   return num(amount) + extra
 }
 
+function withLendingRemaining(rows) {
+  return (rows || []).map((row) => ({
+    ...row,
+    remaining_amount: lendingRemaining(row.amount, row.type, row.lending_items),
+  }))
+}
+
 async function replaceLendingStatements(userId, parent, items) {
   await withAuth(() => supabase.from('statements').delete().eq('ref_id', parent.id))
   const rows = [
@@ -416,11 +423,12 @@ export const lendingApi = {
       request = applyCommonFilters(request, filters)
       return request.order('date', { ascending: false }).range(from, to)
     })
-    return { rows: result.data ?? [], total: result.count ?? 0 }
+    return { rows: withLendingRemaining(result.data), total: result.count ?? 0 }
   },
 
   async listAll() {
-    return fetchAll(() => supabase.from('lending_entries').select(lendingSelect).order('due_date', { ascending: true }))
+    const rows = await fetchAll(() => supabase.from('lending_entries').select(lendingSelect).order('due_date', { ascending: true }))
+    return withLendingRemaining(rows)
   },
 
   async createMany(rows) {
@@ -574,7 +582,102 @@ function depositStatements(userId, row, cashBankId) {
   ]
 }
 
+const majorSelect = 'id, date, type, amount, description, bank:banks!bank_id(id, name), category:categories!category_id(id, name)'
+const transferSelect =
+  'id, date, amount, description, from_bank_id, to_bank_id, created_at, from_bank:banks!from_bank_id(id, name), to_bank:banks!to_bank_id(id, name)'
+
+function transferStatements(userId, row) {
+  const value = num(row.amount)
+  const description = row.description?.trim() || 'Self transfer'
+  const base = {
+    user_id: userId,
+    date: row.date,
+    description,
+    category_id: null,
+    ref_id: row.id,
+    item_ref_id: null,
+    entry_kind: 'Transfer',
+  }
+  return [
+    { ...base, bank_id: row.from_bank_id, debit: value, credit: 0, amount: -value },
+    { ...base, bank_id: row.to_bank_id, debit: 0, credit: value, amount: value },
+  ]
+}
+
+export const transfersApi = {
+  async listPage({ page = 1, limit = 25 } = {}) {
+    const { from, to } = pageRange(page, limit)
+    const result = await withAuth(() =>
+      supabase.from('transfers').select(transferSelect, { count: 'exact' }).order('date', { ascending: false }).range(from, to),
+    )
+    return { rows: result.data ?? [], total: result.count ?? 0 }
+  },
+
+  async createMany(rows) {
+    const user_id = await currentUserId()
+    const payload = rows.map((row) => {
+      if (row.from_bank_id === row.to_bank_id) {
+        const error = new Error('From bank and to bank must be different.')
+        error.code = 'SAME_BANK'
+        throw error
+      }
+      return {
+        user_id,
+        date: row.date,
+        amount: num(row.amount),
+        description: row.description || '',
+        from_bank_id: row.from_bank_id,
+        to_bank_id: row.to_bank_id,
+      }
+    })
+    const created = await withAuth(() =>
+      supabase.from('transfers').insert(payload).select('id, date, amount, description, from_bank_id, to_bank_id'),
+    )
+    const statements = (created.data ?? []).flatMap((row) => transferStatements(user_id, row))
+    if (statements.length) await withAuth(() => supabase.from('statements').insert(statements))
+    return created.data ?? []
+  },
+
+  async update(id, row) {
+    if (row.from_bank_id === row.to_bank_id) {
+      const error = new Error('From bank and to bank must be different.')
+      error.code = 'SAME_BANK'
+      throw error
+    }
+    const user_id = await currentUserId()
+    const payload = {
+      date: row.date,
+      amount: num(row.amount),
+      description: row.description || '',
+      from_bank_id: row.from_bank_id,
+      to_bank_id: row.to_bank_id,
+    }
+    const updated = await withAuth(() =>
+      supabase.from('transfers').update(payload).eq('id', id).select('id, date, amount, description, from_bank_id, to_bank_id').single(),
+    )
+    await withAuth(() => supabase.from('statements').delete().eq('ref_id', id).eq('entry_kind', 'Transfer'))
+    await withAuth(() => supabase.from('statements').insert(transferStatements(user_id, updated.data)))
+    return updated.data
+  },
+
+  async remove(id) {
+    await withAuth(() => supabase.from('statements').delete().eq('ref_id', id).eq('entry_kind', 'Transfer'))
+    await withAuth(() => supabase.from('transfers').delete().eq('id', id))
+  },
+}
+
 export const dashboardApi = {
+  async majorTransactions({ type = 'all', from = null, to = null, limit = 10 } = {}) {
+    const result = await withAuth(() => {
+      let request = supabase.from('entries').select(majorSelect).order('amount', { ascending: false }).limit(limit)
+      if (type && type !== 'all' && type !== 'Total') request = request.eq('type', type)
+      if (from) request = request.gte('date', from)
+      if (to) request = request.lte('date', to)
+      return request
+    })
+    return result.data ?? []
+  },
+
   async widgets(type = 'Total') {
     const rows = await fetchAll(() => {
       let request = supabase.from('entries').select('date, type, amount')

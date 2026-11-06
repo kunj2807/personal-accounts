@@ -26,17 +26,20 @@ export default function LedgerStatement() {
     setError('')
     try {
       const result = await reportsApi.statement(payload)
-      let balance = Number(result.opening) || 0
-      let totalDebit = balance < 0 ? -balance : 0
-      let totalCredit = balance > 0 ? balance : 0
+      const opening = roundMoney(result.opening)
+      let balance = opening
+      let totalDebit = opening < 0 ? roundMoney(-opening) : 0
+      let totalCredit = opening > 0 ? opening : 0
       const body = (result.data || []).map((item) => {
-        balance = balance + Number(item.credit || 0) - Number(item.debit || 0)
-        totalCredit += Number(item.credit || 0)
-        totalDebit += Number(item.debit || 0)
-        return { ...item, balance }
+        const debit = roundMoney(item.debit)
+        const credit = roundMoney(item.credit)
+        balance = roundMoney(balance + credit - debit)
+        totalCredit = roundMoney(totalCredit + credit)
+        totalDebit = roundMoney(totalDebit + debit)
+        return { ...item, debit, credit, balance }
       })
       setRows([
-        { id: 'opening', description: 'Opening Balance', debit: Number(result.opening) < 0 ? -Number(result.opening) : 0, credit: Number(result.opening) > 0 ? Number(result.opening) : 0, balance: Number(result.opening) || 0 },
+        { id: 'opening', description: 'Opening Balance', debit: opening < 0 ? roundMoney(-opening) : 0, credit: opening > 0 ? opening : 0, balance: opening },
         ...body,
         { id: 'total', description: 'Total', debit: totalDebit, credit: totalCredit, balance },
       ])
@@ -55,17 +58,72 @@ export default function LedgerStatement() {
   const exportPdf = () => {
     const name = askFilename('ledger-statement.pdf')
     if (!name) return
-    const doc = new jsPDF()
-    doc.text('Ledger Statement', 14, 15)
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.setTextColor(30, 41, 59)
+    doc.text('Ledger Statement', 14, 14)
+    doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
-    doc.text(`Period: ${startDate} to ${endDate}`, 14, 25)
+    doc.setTextColor(71, 85, 105)
+    const details = [`Period: ${formatDate(startDate)} to ${formatDate(endDate)}`]
+    if (banks.length) details.push(`Banks: ${banks.map((item) => item.name).join(', ')}`)
+    if (ledgers.length) details.push(`Ledgers: ${ledgers.map((item) => item.name).join(', ')}`)
+    const detailLines = doc.splitTextToSize(details.join('    '), pageWidth - 28)
+    doc.text(detailLines, 14, 21)
+
     autoTable(doc, {
-      startY: 30,
+      startY: 21 + detailLines.length * 5 + 3,
+      margin: { top: 14, right: 14, bottom: 16, left: 14 },
       head: [['Date', 'Ledger', 'Bank', 'Description', 'Debit', 'Credit', 'Balance']],
-      body: rows.map((row) => [row.date ? formatDate(row.date) : '', row.category?.name || '', row.bank?.name || '', row.description || '', row.debit || '-', row.credit || '-', row.balance || '-']),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [41, 128, 185] },
+      body: rows.map((row) => {
+        const summary = row.id === 'opening' || row.id === 'total'
+        return [
+          row.date ? formatDate(row.date) : '',
+          row.category?.name || '',
+          row.bank?.name || (summary ? '' : '-'),
+          row.description || '',
+          pdfMoney(row.debit, true),
+          pdfMoney(row.credit, true),
+          pdfMoney(row.balance),
+        ]
+      }),
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2.2, overflow: 'linebreak', valign: 'middle', textColor: [30, 41, 59], lineColor: [226, 232, 240], lineWidth: 0.1 },
+      headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', halign: 'left' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 32 },
+        4: { cellWidth: 30, halign: 'right' },
+        5: { cellWidth: 30, halign: 'right' },
+        6: { cellWidth: 34, halign: 'right' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'head' && data.column.index >= 4) data.cell.styles.halign = 'right'
+        if (data.section !== 'body') return
+        const row = rows[data.row.index]
+        if (!row) return
+        if (row.id === 'opening' || row.id === 'total') {
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.fillColor = [226, 232, 240]
+        }
+        if (data.column.index === 6 && roundMoney(row.balance) < 0) data.cell.styles.textColor = [185, 28, 28]
+      },
     })
+
+    const totalPages = doc.getNumberOfPages()
+    for (let page = 1; page <= totalPages; page += 1) {
+      doc.setPage(page)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(100)
+      doc.text('Ledger Statement', 14, pageHeight - 8)
+      doc.text(`Page ${page} of ${totalPages}`, pageWidth - 14, pageHeight - 8, { align: 'right' })
+    }
     doc.save(name.endsWith('.pdf') ? name : `${name}.pdf`)
   }
 
@@ -111,6 +169,18 @@ export default function LedgerStatement() {
       </div>
     </Card>
   )
+}
+
+function roundMoney(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.round((number + Number.EPSILON) * 100) / 100
+}
+
+function pdfMoney(value, dashZero = false) {
+  const number = roundMoney(value)
+  if (dashZero && number === 0) return '-'
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(number)
 }
 
 async function runExport(setExporting, kind, work) {

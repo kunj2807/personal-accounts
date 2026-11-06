@@ -100,6 +100,20 @@ create table if not exists public.deposits (
   constraint deposits_amount_positive check (amount > 0)
 );
 
+create table if not exists public.transfers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  date date not null,
+  amount numeric(14, 2) not null,
+  description text not null default '',
+  from_bank_id uuid not null references public.banks (id) on delete restrict,
+  to_bank_id uuid not null references public.banks (id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint transfers_amount_positive check (amount > 0),
+  constraint transfers_banks_differ check (from_bank_id <> to_bank_id)
+);
+
 create table if not exists public.statements (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -141,6 +155,7 @@ create index if not exists categories_user_idx on public.categories (user_id);
 create index if not exists entries_user_date_idx on public.entries (user_id, date desc);
 create index if not exists lending_user_date_idx on public.lending_entries (user_id, date desc);
 create index if not exists deposits_user_date_idx on public.deposits (user_id, date desc);
+create index if not exists transfers_user_date_idx on public.transfers (user_id, date desc);
 create index if not exists statements_user_date_idx on public.statements (user_id, date);
 create index if not exists statements_category_idx on public.statements (category_id);
 create index if not exists statements_bank_idx on public.statements (bank_id);
@@ -166,6 +181,10 @@ drop trigger if exists deposits_set_updated_at on public.deposits;
 create trigger deposits_set_updated_at before update on public.deposits
 for each row execute function public.set_updated_at();
 
+drop trigger if exists transfers_set_updated_at on public.transfers;
+create trigger transfers_set_updated_at before update on public.transfers
+for each row execute function public.set_updated_at();
+
 drop trigger if exists custom_forms_set_updated_at on public.custom_forms;
 create trigger custom_forms_set_updated_at before update on public.custom_forms
 for each row execute function public.set_updated_at();
@@ -180,6 +199,7 @@ alter table public.entries enable row level security;
 alter table public.lending_entries enable row level security;
 alter table public.lending_items enable row level security;
 alter table public.deposits enable row level security;
+alter table public.transfers enable row level security;
 alter table public.statements enable row level security;
 alter table public.custom_forms enable row level security;
 alter table public.custom_form_entries enable row level security;
@@ -216,6 +236,12 @@ with check (user_id = auth.uid());
 
 drop policy if exists deposits_owner on public.deposits;
 create policy deposits_owner on public.deposits
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists transfers_owner on public.transfers;
+create policy transfers_owner on public.transfers
 for all to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());

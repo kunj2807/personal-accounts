@@ -347,7 +347,6 @@ async function main() {
     }
     const id = crypto.randomUUID()
     lendingIds.set(oid(entry._id), id)
-    const remaining = money(entry.remainingAmount)
     lendingRows.push({
       id,
       user_id: userId,
@@ -355,7 +354,7 @@ async function main() {
       due_date: isoDate(entry.duedate),
       type: entry.type,
       amount,
-      remaining_amount: remaining === null ? amount : remaining,
+      remaining_amount: amount,
       description: text(entry.description),
       bank_id: bankIds.get(oid(entry.bank)) || null,
       category_id: categoryIds.get(oid(entry.ledger)) || null,
@@ -387,6 +386,18 @@ async function main() {
       bank_id: bankIds.get(oid(item.bank)) || null,
       created_at: stamp(item.date),
     })
+  }
+
+  const paymentsByParent = new Map()
+  for (const item of itemRows) {
+    const list = paymentsByParent.get(item.parent_id) || []
+    list.push(item)
+    paymentsByParent.set(item.parent_id, list)
+  }
+  for (const row of lendingRows) {
+    const payments = paymentsByParent.get(row.id) || []
+    const adjustment = payments.reduce((sum, item) => sum + (item.type === row.type ? item.amount : -item.amount), 0)
+    row.remaining_amount = Math.round((row.amount + adjustment) * 100) / 100
   }
 
   const depositRows = []
