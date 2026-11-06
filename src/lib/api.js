@@ -505,9 +505,45 @@ export const lendingApi = {
   },
 
   async remove(id) {
-    await withAuth(() => supabase.from('statements').delete().eq('ref_id', id))
-    await withAuth(() => supabase.from('lending_entries').delete().eq('id', id))
+    await deleteLendingEntry(id)
   },
+
+  async convertToExpense(entry, form) {
+    if (!form.category_id) throw new Error('Category is required.')
+    const rows = [
+      {
+        date: String(entry.date).slice(0, 10),
+        type: entry.type,
+        amount: entry.amount,
+        description: entry.description || '',
+        bank_id: entry.bank_id || null,
+        category_id: form.category_id,
+      },
+      ...(entry.lending_items || []).map((item) => ({
+        date: String(item.date).slice(0, 10),
+        type: item.type,
+        amount: item.amount,
+        description: item.description || '',
+        bank_id: item.bank_id || entry.bank_id || null,
+        category_id: form.category_id,
+      })),
+    ].filter((row) => num(row.amount) > 0)
+    if (!rows.length) throw new Error('Nothing to convert.')
+    const created = await entriesApi.createMany(rows)
+    try {
+      await deleteLendingEntry(entry.id)
+    } catch (error) {
+      await Promise.all((created || []).map((row) => (row?.id ? entriesApi.remove(row.id) : null)))
+      throw error
+    }
+  },
+}
+
+async function deleteLendingEntry(id) {
+  await withAuth(() => supabase.from('lending_items').delete().eq('parent_id', id))
+  await withAuth(() => supabase.from('statements').delete().eq('ref_id', id))
+  const deleted = await withAuth(() => supabase.from('lending_entries').delete().eq('id', id).select('id'))
+  if (!deleted.data?.length) throw new Error('The lending entry could not be deleted.')
 }
 
 export const depositsApi = {

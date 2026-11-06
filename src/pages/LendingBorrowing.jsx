@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, Eye, FileText, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eye, FileText, Pencil, Receipt, Trash2 } from 'lucide-react'
 import { toast } from 'react-toastify'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -26,6 +26,8 @@ export default function LendingBorrowing() {
   const [draft, setDraft] = useState(emptyFilters)
   const [view, setView] = useState(null)
   const [edit, setEdit] = useState(null)
+  const [convert, setConvert] = useState(null)
+  const [converting, setConverting] = useState(false)
   const categories = useResource(() => categoriesApi.list(), [])
   const banks = useResource(() => banksApi.list(), [])
   const list = useResource(() => lendingApi.listPage({ ...filters, ledgers: filters.categories, page, limit }), [filters, page, limit])
@@ -88,7 +90,27 @@ export default function LendingBorrowing() {
     }
   }
 
-  const busy = submitting || saving || Boolean(deletingId)
+  const openConvert = (row) => {
+    setConvert({ entry: row, category_id: row.category_id || '' })
+  }
+
+  const convertExpense = async () => {
+    if (converting || !convert) return
+    setConverting(true)
+    try {
+      await lendingApi.convertToExpense(convert.entry, convert)
+      toast.success('Converted as expense')
+      if (view?.id === convert.entry.id) setView(null)
+      setConvert(null)
+      list.reload()
+    } catch (error) {
+      toast.error(friendlyError(error))
+    } finally {
+      setConverting(false)
+    }
+  }
+
+  const busy = submitting || saving || converting || Boolean(deletingId)
 
   return (
     <div className="flex flex-col gap-2">
@@ -148,6 +170,7 @@ export default function LendingBorrowing() {
                 <div className="flex justify-center gap-2">
                   <BadgeButton type="button" variant="outline" disabled={busy} onClick={() => setView(row)}><Eye size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="edit" disabled={busy} onClick={() => setEdit(toEdit(row))}><Pencil size={15} /></BadgeButton>
+                  <BadgeButton type="button" variant="outline" disabled={busy} title="Convert as expense" aria-label="Convert as expense" onClick={() => openConvert(row)}><Receipt size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="delete" disabled={busy} onClick={() => remove(row.id)}>
                     {deletingId === row.id ? <Spinner /> : <Trash2 size={15} />}
                   </BadgeButton>
@@ -188,14 +211,29 @@ export default function LendingBorrowing() {
                 />
               </div>
             )}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="secondary" className="flex items-center gap-2" loading={exportingView} disabled={exportingView} onClick={async () => { setExportingView(true); try { await new Promise((resolve) => setTimeout(resolve, 0)); exportViewPdf(view) } finally { setExportingView(false) } }}><FileText size={16} /> PDF</Button>
-              <Button type="button" variant="secondary" onClick={() => setView(null)}>Close</Button>
+            <div className="mt-4 flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 sm:flex-row sm:justify-end dark:border-zinc-700">
+              <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={() => setView(null)}>Close</Button>
+              <Button type="button" variant="secondary" className="flex w-full items-center justify-center gap-2 sm:w-auto" loading={exportingView} disabled={exportingView} onClick={async () => { setExportingView(true); try { await new Promise((resolve) => setTimeout(resolve, 0)); exportViewPdf(view) } finally { setExportingView(false) } }}><FileText size={16} /> PDF</Button>
+              <Button type="button" className="flex w-full items-center justify-center gap-2 sm:w-auto" disabled={busy} onClick={() => openConvert(view)}><Receipt size={16} /> Convert as expense</Button>
             </div>
           </div>
         )}
       </Modal>
 
+      <Modal open={!!convert} onClose={() => !converting && setConvert(null)} title="Convert as expense" className="max-w-lg">
+        {convert && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              The parent and each child are copied with their own type. A debit stays a debit and a credit stays a credit. One statement is created for each, and this lending entry is removed.
+            </p>
+            <SearchSelect label="Category" value={convert.category_id} onChange={(value) => setConvert({ ...convert, category_id: value })} options={ledgerOptions} />
+            <div className="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 sm:flex-row sm:justify-end dark:border-zinc-700">
+              <Button type="button" variant="secondary" className="w-full sm:w-auto" disabled={converting} onClick={() => setConvert(null)}>Cancel</Button>
+              <Button type="button" className="w-full sm:w-auto" loading={converting} disabled={converting} onClick={convertExpense}>Convert</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
       <Modal open={!!edit} onClose={() => !saving && setEdit(null)} title="Edit Entry" className="max-w-5xl">
         {edit && (
           <div className="space-y-4">

@@ -150,6 +150,12 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+     
+      <div className="w-full flex-grow p-2">
+        <BalanceGrid title="Bank Accounts" accounts={balances.data?.banks || []} loading={balances.loading} showTotal />
+        <div className="h-4" />
+        <BalanceGrid title="Ledger Accounts" accounts={balances.data?.ledgers || []} loading={balances.loading} />
+      </div>
       <div className="w-full flex-grow p-2">
         <Card title="Major Transactions">
           {major.loading ? (
@@ -163,11 +169,6 @@ export default function Dashboard() {
             </div>
           )}
         </Card>
-      </div>
-      <div className="w-full flex-grow p-2">
-        <BalanceGrid title="Bank Accounts" accounts={balances.data?.banks || []} loading={balances.loading} showTotal />
-        <div className="h-4" />
-        <BalanceGrid title="Ledger Accounts" accounts={balances.data?.ledgers || []} loading={balances.loading} />
       </div>
       <div className="w-full flex-grow p-2">
         <Card
