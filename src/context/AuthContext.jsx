@@ -69,6 +69,7 @@ export function AuthProvider({ children }) {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: `${import.meta.env.VITE_SITE_URL}/reset-password`,
         })
+        console.log(import.meta.env.VITE_SITE_URL)
         if (error) throw error
       },
       async updatePassword(password) {
