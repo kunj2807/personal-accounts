@@ -22,6 +22,7 @@ export default function DepositWithdraw() {
   const [filters, setFilters] = useState(emptyFilters)
   const [draft, setDraft] = useState(emptyFilters)
   const [edit, setEdit] = useState(null)
+  const [editErrors, setEditErrors] = useState({})
   const [view, setView] = useState(null)
   const banks = useResource(() => banksApi.list({ includeCash: false }), [])
   const list = useResource(() => depositsApi.listPage({ ...filters, page, limit }), [filters, page, limit])
@@ -47,7 +48,13 @@ export default function DepositWithdraw() {
 
   const save = async () => {
     if (saving) return
-    if (!edit.date || !edit.bank_id || Number(edit.amount) <= 0) {
+    const next = {
+      date: edit.date ? undefined : 'Date is required',
+      bank_id: edit.bank_id ? undefined : 'Bank is required',
+      amount: Number(edit.amount) > 0 ? undefined : 'Amount must be greater than 0',
+    }
+    setEditErrors(next)
+    if (Object.values(next).some(Boolean)) {
       toast.error('Please fix the errors before submitting')
       return
     }
@@ -56,6 +63,7 @@ export default function DepositWithdraw() {
       await depositsApi.update(edit.id, edit)
       toast.success('Successfully updated')
       setEdit(null)
+      setEditErrors({})
       list.reload()
     } catch (error) {
       toast.error(friendlyError(error))
@@ -90,10 +98,10 @@ export default function DepositWithdraw() {
           onSubmit={submit}
           submitting={submitting}
           columns={[
-            { key: 'date', label: 'Date', type: 'date' },
+            { key: 'date', label: 'Date', type: 'date', required: true },
             { key: 'type', label: 'Type', type: 'select', options: [{ id: 'Deposit', name: 'Deposit' }, { id: 'Withdrawal', name: 'Withdrawal' }] },
-            { key: 'bank_id', label: 'Bank', type: 'select', options: bankOptions },
-            { key: 'amount', label: 'Amount', type: 'number' },
+            { key: 'bank_id', label: 'Bank', type: 'select', required: true, options: bankOptions },
+            { key: 'amount', label: 'Amount', type: 'number', required: true },
             { key: 'description', label: 'Description', placeholder: 'Enter description' },
           ]}
         />
@@ -125,7 +133,7 @@ export default function DepositWithdraw() {
               { key: 'actions', label: 'Actions', render: (row) => (
                 <div className="flex justify-center gap-2">
                   <BadgeButton type="button" variant="outline" disabled={busy} onClick={() => setView(row)}><Eye size={15} /></BadgeButton>
-                  <BadgeButton type="button" variant="edit" disabled={busy} onClick={() => setEdit({ ...row, date: String(row.date).slice(0, 10) })}><Pencil size={15} /></BadgeButton>
+                  <BadgeButton type="button" variant="edit" disabled={busy} onClick={() => { setEditErrors({}); setEdit({ ...row, date: String(row.date).slice(0, 10) }) }}><Pencil size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="delete" disabled={busy} onClick={() => remove(row.id)}>
                     {deletingId === row.id ? <Spinner /> : <Trash2 size={15} />}
                   </BadgeButton>
@@ -152,14 +160,14 @@ export default function DepositWithdraw() {
           </div>
         )}
       </Modal>
-      <Modal open={!!edit} onClose={() => !saving && setEdit(null)} title="Edit Entry" className="max-w-3xl">
+      <Modal open={!!edit} onClose={() => { if (!saving) { setEdit(null); setEditErrors({}) } }} title="Edit Entry" className="max-w-3xl">
         {edit && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
+              <Input label="Date" type="date" error={editErrors.date} value={edit.date} onChange={(event) => { setEdit({ ...edit, date: event.target.value }); setEditErrors((current) => ({ ...current, date: undefined })) }} />
               <NativeSelect label="Type" value={edit.type} onChange={(event) => setEdit({ ...edit, type: event.target.value })} options={[{ id: 'Deposit', name: 'Deposit' }, { id: 'Withdrawal', name: 'Withdrawal' }]} />
-              <NativeSelect label="Bank" value={edit.bank_id || ''} onChange={(event) => setEdit({ ...edit, bank_id: event.target.value })} options={bankOptions} />
-              <Input label="Amount" type="number" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
+              <NativeSelect label="Bank" error={editErrors.bank_id} value={edit.bank_id || ''} onChange={(event) => { setEdit({ ...edit, bank_id: event.target.value }); setEditErrors((current) => ({ ...current, bank_id: undefined })) }} options={bankOptions} />
+              <Input label="Amount" type="number" error={editErrors.amount} value={edit.amount} onChange={(event) => { setEdit({ ...edit, amount: event.target.value }); setEditErrors((current) => ({ ...current, amount: undefined })) }} />
               <div className="md:col-span-2"><Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} /></div>
             </div>
             <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-zinc-700">

@@ -26,6 +26,8 @@ export default function LendingBorrowing() {
   const [draft, setDraft] = useState(emptyFilters)
   const [view, setView] = useState(null)
   const [edit, setEdit] = useState(null)
+  const [editErrors, setEditErrors] = useState({})
+  const [itemErrors, setItemErrors] = useState([])
   const [convert, setConvert] = useState(null)
   const [converting, setConverting] = useState(false)
   const categories = useResource(() => categoriesApi.list(), [])
@@ -54,11 +56,19 @@ export default function LendingBorrowing() {
 
   const save = async () => {
     if (saving) return
-    if (!edit.date || !edit.category_id || !edit.due_date || Number(edit.amount) <= 0) {
-      toast.error('Please fix the errors before submitting')
-      return
+    const next = {
+      date: edit.date ? undefined : 'Date is required',
+      category_id: edit.category_id ? undefined : 'From/To is required',
+      due_date: edit.due_date ? undefined : 'Due Date is required',
+      amount: Number(edit.amount) > 0 ? undefined : 'Amount must be greater than 0',
     }
-    if ((edit.items || []).some((item) => !item.date || Number(item.amount) <= 0)) {
+    const items = (edit.items || []).map((item) => ({
+      date: item.date ? undefined : 'Date is required',
+      amount: Number(item.amount) > 0 ? undefined : 'Amount must be greater than 0',
+    }))
+    setEditErrors(next)
+    setItemErrors(items)
+    if (Object.values(next).some(Boolean) || items.some((item) => Object.values(item).some(Boolean))) {
       toast.error('Please fix the errors before submitting')
       return
     }
@@ -67,6 +77,8 @@ export default function LendingBorrowing() {
       await lendingApi.update(edit.id, edit, edit.items || [])
       toast.success('Successfully updated')
       setEdit(null)
+      setEditErrors({})
+      setItemErrors([])
       list.reload()
     } catch (error) {
       toast.error(friendlyError(error))
@@ -121,12 +133,12 @@ export default function LendingBorrowing() {
           onSubmit={submit}
           submitting={submitting}
           columns={[
-            { key: 'date', label: 'Date', type: 'date' },
+            { key: 'date', label: 'Date', type: 'date', required: true },
             { key: 'type', label: 'Type', type: 'select', options: [{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }] },
             { key: 'bank_id', label: 'Bank', type: 'select', search: true, options: bankOptions },
-            { key: 'category_id', label: 'From/To', type: 'select', search: true, options: ledgerOptions },
-            { key: 'amount', label: 'Amount', type: 'number' },
-            { key: 'due_date', label: 'Due Date', type: 'date' },
+            { key: 'category_id', label: 'From/To', type: 'select', search: true, required: true, options: ledgerOptions },
+            { key: 'amount', label: 'Amount', type: 'number', required: true },
+            { key: 'due_date', label: 'Due Date', type: 'date', required: true },
             { key: 'description', label: 'Description', placeholder: 'Enter description' },
           ]}
         />
@@ -169,7 +181,7 @@ export default function LendingBorrowing() {
               { key: 'actions', label: 'Actions', render: (row) => (
                 <div className="flex justify-center gap-2">
                   <BadgeButton type="button" variant="outline" disabled={busy} onClick={() => setView(row)}><Eye size={15} /></BadgeButton>
-                  <BadgeButton type="button" variant="edit" disabled={busy} onClick={() => setEdit(toEdit(row))}><Pencil size={15} /></BadgeButton>
+                  <BadgeButton type="button" variant="edit" disabled={busy} onClick={() => { setEditErrors({}); setItemErrors([]); setEdit(toEdit(row)) }}><Pencil size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="outline" disabled={busy} title="Convert as expense" aria-label="Convert as expense" onClick={() => openConvert(row)}><Receipt size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="delete" disabled={busy} onClick={() => remove(row.id)}>
                     {deletingId === row.id ? <Spinner /> : <Trash2 size={15} />}
@@ -234,16 +246,16 @@ export default function LendingBorrowing() {
           </div>
         )}
       </Modal>
-      <Modal open={!!edit} onClose={() => !saving && setEdit(null)} title="Edit Entry" className="max-w-5xl">
+      <Modal open={!!edit} onClose={() => { if (!saving) { setEdit(null); setEditErrors({}); setItemErrors([]) } }} title="Edit Entry" className="max-w-5xl">
         {edit && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
+              <Input label="Date" type="date" error={editErrors.date} value={edit.date} onChange={(event) => { setEdit({ ...edit, date: event.target.value }); setEditErrors((current) => ({ ...current, date: undefined })) }} />
               <NativeSelect label="Type" value={edit.type} onChange={(event) => setEdit({ ...edit, type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} />
               <SearchSelect label="Bank" value={edit.bank_id || ''} onChange={(value) => setEdit({ ...edit, bank_id: value })} options={bankOptions} />
-              <SearchSelect label="From/To" value={edit.category_id || ''} onChange={(value) => setEdit({ ...edit, category_id: value })} options={ledgerOptions} />
-              <Input label="Amount" type="number" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
-              <Input label="Due Date" type="date" value={edit.due_date || ''} onChange={(event) => setEdit({ ...edit, due_date: event.target.value })} />
+              <SearchSelect label="From/To" error={editErrors.category_id} value={edit.category_id || ''} onChange={(value) => { setEdit({ ...edit, category_id: value }); setEditErrors((current) => ({ ...current, category_id: undefined })) }} options={ledgerOptions} />
+              <Input label="Amount" type="number" error={editErrors.amount} value={edit.amount} onChange={(event) => { setEdit({ ...edit, amount: event.target.value }); setEditErrors((current) => ({ ...current, amount: undefined })) }} />
+              <Input label="Due Date" type="date" error={editErrors.due_date} value={edit.due_date || ''} onChange={(event) => { setEdit({ ...edit, due_date: event.target.value }); setEditErrors((current) => ({ ...current, due_date: undefined })) }} />
               <Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} />
               <Input label="Due Amount" value={formatAmount(pendingAmount(edit))} disabled />
             </div>
@@ -260,13 +272,13 @@ export default function LendingBorrowing() {
                   {(edit.items || []).map((item, index) => (
                     <tr key={item.id || index} className="even:bg-purple-50 even:dark:bg-zinc-800">
                       <td className="px-3 py-2">{index + 1}</td>
-                      <td className="px-3 py-2"><Input type="date" className="min-w-[100px]" value={item.date} onChange={(event) => updateItem(setEdit, edit, index, { date: event.target.value })} /></td>
+                      <td className="px-3 py-2"><Input type="date" className="min-w-[100px]" error={itemErrors[index]?.date} value={item.date} onChange={(event) => { updateItem(setEdit, edit, index, { date: event.target.value }); setItemErrors((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, date: undefined } : row))) }} /></td>
                       <td className="px-3 py-2"><NativeSelect className="min-w-[100px]" value={item.type} onChange={(event) => updateItem(setEdit, edit, index, { type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} /></td>
                       <td className="px-3 py-2"><SearchSelect className="min-w-[160px]" value={item.bank_id || ''} onChange={(value) => updateItem(setEdit, edit, index, { bank_id: value })} options={bankOptions} /></td>
-                      <td className="px-3 py-2"><Input type="number" className="min-w-[100px]" value={item.amount} onChange={(event) => updateItem(setEdit, edit, index, { amount: event.target.value })} /></td>
+                      <td className="px-3 py-2"><Input type="number" className="min-w-[100px]" error={itemErrors[index]?.amount} value={item.amount} onChange={(event) => { updateItem(setEdit, edit, index, { amount: event.target.value }); setItemErrors((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, amount: undefined } : row))) }} /></td>
                       <td className="px-3 py-2"><Input className="min-w-[200px]" value={item.description || ''} onChange={(event) => updateItem(setEdit, edit, index, { description: event.target.value })} /></td>
                       <td className="px-2 py-2">
-                        <BadgeButton type="button" variant="delete" disabled={saving} aria-label="Remove payment" onClick={() => setEdit({ ...edit, items: edit.items.filter((_, itemIndex) => itemIndex !== index) })}>
+                        <BadgeButton type="button" variant="delete" disabled={saving} aria-label="Remove payment" onClick={() => { setEdit({ ...edit, items: edit.items.filter((_, itemIndex) => itemIndex !== index) }); setItemErrors((current) => current.filter((_, itemIndex) => itemIndex !== index)) }}>
                           <Trash2 size={15} />
                         </BadgeButton>
                       </td>

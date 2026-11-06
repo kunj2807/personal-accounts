@@ -46,6 +46,7 @@ export const Input = forwardRef(function Input({ label, id, type, error, parentC
           className={twMerge(
             'mb-1 w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-purple-400 focus:ring-2 focus:ring-purple-200 disabled:bg-gray-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-gray-200 dark:focus:border-purple-400 dark:focus:ring-purple-900 dark:disabled:bg-zinc-700',
             className,
+            error && 'border-red-500 focus:border-red-500 focus:ring-red-200 dark:border-red-500',
           )}
         />
         {isPassword && (
@@ -87,7 +88,7 @@ export function NativeSelect({ options, id, label, error, className = '', ...pro
       )}
       <select
         id={id}
-        className={twMerge('mb-1 w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 outline-none transition focus:ring-2 focus:ring-purple-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-gray-200', className)}
+        className={twMerge('mb-1 w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-base text-gray-700 outline-none transition focus:ring-2 focus:ring-purple-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-gray-200', className, error && 'border-red-500 focus:border-red-500 focus:ring-red-200 dark:border-red-500')}
         {...props}
       >
         {options.map((option) => (
@@ -267,7 +268,7 @@ export function Pagination({ totalItems, itemsPerPage, currentPage, onPageChange
   )
 }
 
-export function SearchSelect({ label, options = [], value, onChange, placeholder = 'Select', className = '' }) {
+export function SearchSelect({ label, options = [], value, onChange, placeholder = 'Select', className = '', error }) {
   const { theme } = useTheme()
   const dark = theme === 'dark' || (theme === 'system' && document.documentElement.classList.contains('dark'))
   const choices = options.filter((option) => option.id !== '' && option.id != null)
@@ -286,18 +287,19 @@ export function SearchSelect({ label, options = [], value, onChange, placeholder
         getOptionValue={(option) => String(option.id)}
         menuPortalTarget={typeof document === 'undefined' ? null : document.body}
         menuPosition="fixed"
-        styles={selectStyles(dark)}
+        styles={selectStyles(dark, Boolean(error))}
       />
+      {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   )
 }
 
-function selectStyles(dark) {
+function selectStyles(dark, invalid = false) {
   return {
     control: (base, state) => ({
       ...base,
       background: dark ? '#27272a' : '#fff',
-      borderColor: state.isFocused ? '#c084fc' : dark ? '#3f3f46' : '#d1d5db',
+      borderColor: invalid ? '#ef4444' : state.isFocused ? '#c084fc' : dark ? '#3f3f46' : '#d1d5db',
       boxShadow: state.isFocused ? '0 0 0 2px rgba(216, 180, 254, 0.8)' : 'none',
       minHeight: 42,
       borderRadius: 8,

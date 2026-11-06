@@ -16,6 +16,7 @@ export default function SelfTransfer() {
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(25)
   const [edit, setEdit] = useState(null)
+  const [editErrors, setEditErrors] = useState({})
   const [saving, setSaving] = useState(false)
   const banks = useResource(() => banksApi.list({ includeCash: false }), [])
   const list = useResource(() => transfersApi.listPage({ page, limit }), [page, limit])
@@ -42,8 +43,15 @@ export default function SelfTransfer() {
   }
 
   const save = async () => {
-    if (invalid(edit)) {
-      toast.error(edit.from_bank_id === edit.to_bank_id ? 'From bank and to bank must be different.' : 'Date, both banks, and an amount are required.')
+    const next = {
+      date: edit.date ? undefined : 'Date is required',
+      from_bank_id: edit.from_bank_id ? undefined : 'From Bank is required',
+      to_bank_id: !edit.to_bank_id ? 'To Bank is required' : edit.from_bank_id === edit.to_bank_id ? 'From and to bank must be different' : undefined,
+      amount: Number(edit.amount) > 0 ? undefined : 'Amount must be greater than 0',
+    }
+    setEditErrors(next)
+    if (Object.values(next).some(Boolean)) {
+      toast.error(edit.from_bank_id && edit.from_bank_id === edit.to_bank_id ? 'From bank and to bank must be different.' : 'Please fix the errors before submitting')
       return
     }
     setSaving(true)
@@ -51,6 +59,7 @@ export default function SelfTransfer() {
       await transfersApi.update(edit.id, edit)
       toast.success('Transfer updated')
       setEdit(null)
+      setEditErrors({})
       list.reload()
     } catch (error) {
       toast.error(friendlyError(error))
@@ -79,10 +88,10 @@ export default function SelfTransfer() {
           onSubmit={submit}
           submitting={submitting}
           columns={[
-            { key: 'date', label: 'Date', type: 'date' },
-            { key: 'from_bank_id', label: 'From Bank', type: 'select', options: bankOptions },
-            { key: 'to_bank_id', label: 'To Bank', type: 'select', options: bankOptions },
-            { key: 'amount', label: 'Amount', type: 'number' },
+            { key: 'date', label: 'Date', type: 'date', required: true },
+            { key: 'from_bank_id', label: 'From Bank', type: 'select', required: true, options: bankOptions },
+            { key: 'to_bank_id', label: 'To Bank', type: 'select', required: true, options: bankOptions, validate: (row) => (row.from_bank_id && row.from_bank_id === row.to_bank_id ? 'From and to bank must be different' : '') },
+            { key: 'amount', label: 'Amount', type: 'number', required: true },
             { key: 'description', label: 'Description', placeholder: 'Self transfer' },
           ]}
         />
@@ -102,7 +111,7 @@ export default function SelfTransfer() {
               { key: 'description', label: 'Description', render: (row) => row.description || '-' },
               { key: 'actions', label: 'Actions', render: (row) => (
                 <div className="flex justify-center gap-2">
-                  <BadgeButton variant="edit" onClick={() => setEdit({ ...row, date: String(row.date).slice(0, 10) })}><Pencil size={15} /></BadgeButton>
+                  <BadgeButton variant="edit" onClick={() => { setEditErrors({}); setEdit({ ...row, date: String(row.date).slice(0, 10) }) }}><Pencil size={15} /></BadgeButton>
                   <BadgeButton variant="delete" onClick={() => remove(row.id)}><Trash2 size={15} /></BadgeButton>
                 </div>
               ) },
@@ -111,23 +120,20 @@ export default function SelfTransfer() {
           <Pagination totalItems={list.data?.total || 0} itemsPerPage={limit} currentPage={page} onPageChange={setPage} onPerPageChange={(value) => { setLimit(Number(value)); setPage(1) }} />
         </StatusWrapper>
       </Card>
-      <Modal open={!!edit} onClose={() => !saving && setEdit(null)} title="Edit transfer" className="max-w-3xl">
+      <Modal open={!!edit} onClose={() => { if (!saving) { setEdit(null); setEditErrors({}) } }} title="Edit transfer" className="max-w-3xl">
         {edit && (
           <div className="space-y-4 p-1">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
-              <Input label="Amount" type="number" min="0" step="0.01" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
+              <Input label="Date" type="date" error={editErrors.date} value={edit.date} onChange={(event) => { setEdit({ ...edit, date: event.target.value }); setEditErrors((current) => ({ ...current, date: undefined })) }} />
+              <Input label="Amount" type="number" min="0" step="0.01" error={editErrors.amount} value={edit.amount} onChange={(event) => { setEdit({ ...edit, amount: event.target.value }); setEditErrors((current) => ({ ...current, amount: undefined })) }} />
             </div>
             <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-4">
-              <NativeSelect label="From Bank" value={edit.from_bank_id || ''} onChange={(event) => setEdit({ ...edit, from_bank_id: event.target.value })} options={bankOptions} />
+              <NativeSelect label="From Bank" error={editErrors.from_bank_id} value={edit.from_bank_id || ''} onChange={(event) => { setEdit({ ...edit, from_bank_id: event.target.value }); setEditErrors((current) => ({ ...current, from_bank_id: undefined })) }} options={bankOptions} />
               <div className="flex items-center justify-center text-indigo-500 mb-3 dark:text-indigo-300" aria-hidden="true">
                 <ArrowRight size={18} className="rotate-90 sm:rotate-0" />
               </div>
-              <NativeSelect label="To Bank" value={edit.to_bank_id || ''} onChange={(event) => setEdit({ ...edit, to_bank_id: event.target.value })} options={bankOptions} />
+              <NativeSelect label="To Bank" error={editErrors.to_bank_id} value={edit.to_bank_id || ''} onChange={(event) => { setEdit({ ...edit, to_bank_id: event.target.value }); setEditErrors((current) => ({ ...current, to_bank_id: undefined })) }} options={bankOptions} />
             </div>
-            {edit.from_bank_id && edit.from_bank_id === edit.to_bank_id && (
-              <p className="text-xs text-red-500">From bank and to bank must be different.</p>
-            )}
             <Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} />
             <div className="flex flex-col-reverse gap-2 border-t border-gray-200 pt-4 sm:flex-row sm:justify-end dark:border-zinc-700">
               <Button type="button" variant="secondary" className="w-full sm:w-auto" disabled={saving} onClick={() => setEdit(null)}>Cancel</Button>

@@ -29,6 +29,7 @@ export default function IncomeExpense() {
   const [expanded, setExpanded] = useState(null)
   const [view, setView] = useState(null)
   const [edit, setEdit] = useState(null)
+  const [editErrors, setEditErrors] = useState({})
   const categories = useResource(() => categoriesApi.list(), [])
   const banks = useResource(() => banksApi.list(), [])
   const list = useResource(() => entriesApi.listPage({ ...filters, page, limit }), [filters, page, limit])
@@ -61,7 +62,14 @@ export default function IncomeExpense() {
   }
 
   const saveEdit = async () => {
-    if (!edit.date || !edit.category_id || !edit.bank_id || Number(edit.amount) <= 0) {
+    const next = {
+      date: edit.date ? undefined : 'Date is required',
+      bank_id: edit.bank_id ? undefined : 'Bank is required',
+      category_id: edit.category_id ? undefined : 'Category is required',
+      amount: Number(edit.amount) > 0 ? undefined : 'Amount must be greater than 0',
+    }
+    setEditErrors(next)
+    if (Object.values(next).some(Boolean)) {
       toast.error('Please fix the errors before submitting')
       return
     }
@@ -70,6 +78,7 @@ export default function IncomeExpense() {
       await entriesApi.update(edit.id, edit)
       toast.success('Successfully updated')
       setEdit(null)
+      setEditErrors({})
       list.reload()
     } catch (error) {
       toast.error(friendlyError(error))
@@ -105,11 +114,11 @@ export default function IncomeExpense() {
           onSubmit={submitRows}
           submitting={submitting}
           columns={[
-            { key: 'date', label: 'Date', type: 'date' },
+            { key: 'date', label: 'Date', type: 'date', required: true },
             { key: 'type', label: 'Type', type: 'select', options: [{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }] },
-            { key: 'bank_id', label: 'Bank', type: 'select', search: true, options: bankOptions },
-            { key: 'category_id', label: 'Category', type: 'select', search: true, options: categoryOptions },
-            { key: 'amount', label: 'Amount', type: 'number' },
+            { key: 'bank_id', label: 'Bank', type: 'select', search: true, required: true, options: bankOptions },
+            { key: 'category_id', label: 'Category', type: 'select', search: true, required: true, options: categoryOptions },
+            { key: 'amount', label: 'Amount', type: 'number', required: true },
             { key: 'description', label: 'Description', placeholder: 'Enter description' },
           ]}
         />
@@ -189,7 +198,7 @@ export default function IncomeExpense() {
               { key: 'actions', label: 'Actions', render: (row) => (
                 <div className="flex justify-center gap-2" onClick={(event) => event.stopPropagation()}>
                   <BadgeButton type="button" variant="outline" disabled={Boolean(deletingId)} onClick={() => setView(row)}><Eye size={15} /></BadgeButton>
-                  <BadgeButton type="button" variant="edit" disabled={Boolean(deletingId)} onClick={() => setEdit({ ...row, date: String(row.date).slice(0, 10), parent_id: row.parent_id || '' })}><Pencil size={15} /></BadgeButton>
+                  <BadgeButton type="button" variant="edit" disabled={Boolean(deletingId)} onClick={() => { setEditErrors({}); setEdit({ ...row, date: String(row.date).slice(0, 10), parent_id: row.parent_id || '' }) }}><Pencil size={15} /></BadgeButton>
                   <BadgeButton type="button" variant="delete" disabled={Boolean(deletingId)} onClick={() => remove(row.id)}>
                     {deletingId === row.id ? <Spinner /> : <Trash2 size={15} />}
                   </BadgeButton>
@@ -229,15 +238,15 @@ export default function IncomeExpense() {
         {view && <EntryDetails entry={view} onClose={() => setView(null)} />}
       </Modal>
 
-      <Modal open={!!edit} onClose={() => !saving && setEdit(null)} title="Edit Entry" className="max-w-5xl">
+      <Modal open={!!edit} onClose={() => { if (!saving) { setEdit(null); setEditErrors({}) } }} title="Edit Entry" className="max-w-5xl">
         {edit && (
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
+              <Input label="Date" type="date" error={editErrors.date} value={edit.date} onChange={(event) => { setEdit({ ...edit, date: event.target.value }); setEditErrors((current) => ({ ...current, date: undefined })) }} />
               <NativeSelect label="Type" value={edit.type} onChange={(event) => setEdit({ ...edit, type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} />
-              <SearchSelect label="Bank" value={edit.bank_id || ''} onChange={(value) => setEdit({ ...edit, bank_id: value })} options={bankOptions} />
-              <SearchSelect label="Category" value={edit.category_id || ''} onChange={(value) => setEdit({ ...edit, category_id: value })} options={categoryOptions} />
-              <Input label="Amount" type="number" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
+              <SearchSelect label="Bank" error={editErrors.bank_id} value={edit.bank_id || ''} onChange={(value) => { setEdit({ ...edit, bank_id: value }); setEditErrors((current) => ({ ...current, bank_id: undefined })) }} options={bankOptions} />
+              <SearchSelect label="Category" error={editErrors.category_id} value={edit.category_id || ''} onChange={(value) => { setEdit({ ...edit, category_id: value }); setEditErrors((current) => ({ ...current, category_id: undefined })) }} options={categoryOptions} />
+              <Input label="Amount" type="number" error={editErrors.amount} value={edit.amount} onChange={(event) => { setEdit({ ...edit, amount: event.target.value }); setEditErrors((current) => ({ ...current, amount: undefined })) }} />
               <Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} />
             </div>
             {linkedParent(edit) && <ParentSummary parent={linkedParent(edit)} />}

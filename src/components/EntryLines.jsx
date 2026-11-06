@@ -1,9 +1,29 @@
+import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
+import { toast } from 'react-toastify'
 import { BadgeButton, Button, Input, NativeSelect, SearchSelect } from './ui'
 
 export default function EntryLines({ columns, rows, onChange, onSubmit, submitting }) {
+  const [errors, setErrors] = useState([])
+
   const update = (index, field, value) => {
     onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)))
+    setErrors((current) => current.map((item, rowIndex) => (rowIndex === index ? { ...item, [field]: undefined } : item)))
+  }
+
+  const validate = () => {
+    const next = rows.map((row) => {
+      const fieldErrors = {}
+      for (const column of columns) {
+        const custom = column.validate?.(row)
+        if (custom) fieldErrors[column.key] = custom
+        else if (column.required && column.type === 'number' && !(Number(row[column.key]) > 0)) fieldErrors[column.key] = `${column.label} must be greater than 0`
+        else if (column.required && column.type !== 'number' && !row[column.key]) fieldErrors[column.key] = `${column.label} is required`
+      }
+      return fieldErrors
+    })
+    setErrors(next)
+    return next.every((item) => Object.values(item).every((message) => !message))
   }
 
   return (
@@ -11,6 +31,11 @@ export default function EntryLines({ columns, rows, onChange, onSubmit, submitti
       className="space-y-6"
       onSubmit={(event) => {
         event.preventDefault()
+        if (!validate()) {
+          toast.error('Please fix the errors before submitting')
+          return
+        }
+        setErrors([])
         onSubmit()
       }}
     >
@@ -32,17 +57,17 @@ export default function EntryLines({ columns, rows, onChange, onSubmit, submitti
                 {columns.map((column) => (
                   <td key={column.key} className="px-4 py-3">
                     {column.type === 'select' && column.search ? (
-                      <SearchSelect className="min-w-[180px]" value={row[column.key] || ''} onChange={(value) => update(index, column.key, value)} options={column.options} />
+                      <SearchSelect className="min-w-[180px]" value={row[column.key] || ''} error={errors[index]?.[column.key]} onChange={(value) => update(index, column.key, value)} options={column.options} />
                     ) : column.type === 'select' ? (
-                      <NativeSelect className="min-w-[140px]" value={row[column.key] || ''} onChange={(event) => update(index, column.key, event.target.value)} options={column.options} />
+                      <NativeSelect className="min-w-[140px]" value={row[column.key] || ''} error={errors[index]?.[column.key]} onChange={(event) => update(index, column.key, event.target.value)} options={column.options} />
                     ) : (
-                      <Input className="min-w-[120px]" type={column.type || 'text'} value={row[column.key] ?? ''} min={column.type === 'number' ? 0 : undefined} placeholder={column.placeholder} onChange={(event) => update(index, column.key, column.type === 'number' ? event.target.value : event.target.value)} />
+                      <Input className="min-w-[120px]" type={column.type || 'text'} value={row[column.key] ?? ''} min={column.type === 'number' ? 0 : undefined} placeholder={column.placeholder} error={errors[index]?.[column.key]} onChange={(event) => update(index, column.key, event.target.value)} />
                     )}
                   </td>
                 ))}
                 <td className="px-4 py-3">
                   {rows.length > 1 && (
-                    <BadgeButton type="button" variant="delete" onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}>
+                    <BadgeButton type="button" variant="delete" onClick={() => { onChange(rows.filter((_, rowIndex) => rowIndex !== index)); setErrors((current) => current.filter((_, rowIndex) => rowIndex !== index)) }}>
                       <Trash2 size={16} />
                     </BadgeButton>
                   )}
