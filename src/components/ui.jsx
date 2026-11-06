@@ -267,6 +267,54 @@ export function Pagination({ totalItems, itemsPerPage, currentPage, onPageChange
   )
 }
 
+export function SearchSelect({ label, options = [], value, onChange, placeholder = 'Select', className = '' }) {
+  const { theme } = useTheme()
+  const dark = theme === 'dark' || (theme === 'system' && document.documentElement.classList.contains('dark'))
+  const choices = options.filter((option) => option.id !== '' && option.id != null)
+  const selected = choices.find((option) => String(option.id) === String(value ?? '')) || null
+  return (
+    <div className={className}>
+      {label && <label className="mb-1 block text-sm font-medium dark:text-white">{label}</label>}
+      <Select
+        isSearchable
+        options={choices}
+        value={selected}
+        onChange={(option) => onChange(option?.id || '')}
+        placeholder={placeholder}
+        noOptionsMessage={() => 'No matches'}
+        getOptionLabel={(option) => option.name}
+        getOptionValue={(option) => String(option.id)}
+        menuPortalTarget={typeof document === 'undefined' ? null : document.body}
+        menuPosition="fixed"
+        styles={selectStyles(dark)}
+      />
+    </div>
+  )
+}
+
+function selectStyles(dark) {
+  return {
+    control: (base, state) => ({
+      ...base,
+      background: dark ? '#27272a' : '#fff',
+      borderColor: state.isFocused ? '#c084fc' : dark ? '#3f3f46' : '#d1d5db',
+      boxShadow: state.isFocused ? '0 0 0 2px rgba(216, 180, 254, 0.8)' : 'none',
+      minHeight: 42,
+      borderRadius: 8,
+    }),
+    menu: (base) => ({ ...base, background: dark ? '#18181b' : '#fff', zIndex: 30 }),
+    menuPortal: (base) => ({ ...base, zIndex: 10050 }),
+    option: (base, state) => ({
+      ...base,
+      background: state.isFocused ? (dark ? '#3f3f46' : '#f3f4f6') : 'transparent',
+      color: dark ? '#f4f4f5' : '#111827',
+    }),
+    input: (base) => ({ ...base, color: dark ? '#fff' : '#111' }),
+    singleValue: (base) => ({ ...base, color: dark ? '#fff' : '#111' }),
+    placeholder: (base) => ({ ...base, color: '#9ca3af' }),
+  }
+}
+
 export function MultiSelect({ label, options, selectedValues = [], onChange, placeholder = 'Select' }) {
   const { theme } = useTheme()
   const dark = theme === 'dark' || (theme === 'system' && document.documentElement.classList.contains('dark'))

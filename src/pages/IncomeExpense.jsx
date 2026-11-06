@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import EntryLines from '../components/EntryLines'
-import { BadgeButton, Button, Card, Input, Modal, MultiSelect, NativeSelect, Pagination, Spinner, StatusWrapper, Table, Title } from '../components/ui'
+import { BadgeButton, Button, Card, Input, Modal, MultiSelect, NativeSelect, Pagination, SearchSelect, Spinner, StatusWrapper, Table, Title } from '../components/ui'
 import { banksApi, categoriesApi, entriesApi } from '../lib/api'
 import { friendlyError } from '../lib/errors'
 import { askFilename, formatDate, todayISO } from '../lib/utils'
@@ -107,8 +107,8 @@ export default function IncomeExpense() {
           columns={[
             { key: 'date', label: 'Date', type: 'date' },
             { key: 'type', label: 'Type', type: 'select', options: [{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }] },
-            { key: 'bank_id', label: 'Bank', type: 'select', options: bankOptions },
-            { key: 'category_id', label: 'Category', type: 'select', options: categoryOptions },
+            { key: 'bank_id', label: 'Bank', type: 'select', search: true, options: bankOptions },
+            { key: 'category_id', label: 'Category', type: 'select', search: true, options: categoryOptions },
             { key: 'amount', label: 'Amount', type: 'number' },
             { key: 'description', label: 'Description', placeholder: 'Enter description' },
           ]}
@@ -235,8 +235,8 @@ export default function IncomeExpense() {
             <div className="grid gap-3 md:grid-cols-2">
               <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
               <NativeSelect label="Type" value={edit.type} onChange={(event) => setEdit({ ...edit, type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} />
-              <NativeSelect label="Bank" value={edit.bank_id || ''} onChange={(event) => setEdit({ ...edit, bank_id: event.target.value })} options={bankOptions} />
-              <NativeSelect label="Category" value={edit.category_id || ''} onChange={(event) => setEdit({ ...edit, category_id: event.target.value })} options={categoryOptions} />
+              <SearchSelect label="Bank" value={edit.bank_id || ''} onChange={(value) => setEdit({ ...edit, bank_id: value })} options={bankOptions} />
+              <SearchSelect label="Category" value={edit.category_id || ''} onChange={(value) => setEdit({ ...edit, category_id: value })} options={categoryOptions} />
               <Input label="Amount" type="number" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
               <Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} />
             </div>

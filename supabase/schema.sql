@@ -32,7 +32,6 @@ create table if not exists public.categories (
   user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
   enable boolean not null default true,
-  is_ledger boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint categories_name_not_blank check (char_length(btrim(name)) > 0)
@@ -308,6 +307,70 @@ $$;
 
 revoke all on function public.list_form_entries(uuid, text, text, text) from public;
 grant execute on function public.list_form_entries(uuid, text, text, text) to authenticated;
+
+alter table public.categories drop column if exists is_ledger;
+
+create or replace function public.merge_categories(p_target uuid, p_sources uuid[])
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  sources uuid[];
+  found bigint;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select coalesce(array_agg(distinct source_id), '{}')
+  into sources
+  from unnest(coalesce(p_sources, '{}')) as source_id
+  where source_id is not null;
+
+  if p_target is null or cardinality(sources) = 0 then
+    raise exception 'Choose categories to merge';
+  end if;
+
+  if p_target = any(sources) then
+    raise exception 'The category you keep cannot be one of the categories being merged';
+  end if;
+
+  if not exists (
+    select 1 from public.categories where id = p_target and user_id = uid
+  ) then
+    raise exception 'The category you want to keep was not found';
+  end if;
+
+  select count(*) into found
+  from public.categories
+  where user_id = uid and id = any(sources);
+
+  if found <> cardinality(sources) then
+    raise exception 'One or more categories were not found';
+  end if;
+
+  update public.entries
+  set category_id = p_target
+  where user_id = uid and category_id = any(sources);
+
+  update public.lending_entries
+  set category_id = p_target
+  where user_id = uid and category_id = any(sources);
+
+  update public.statements
+  set category_id = p_target
+  where user_id = uid and category_id = any(sources);
+
+  delete from public.categories
+  where user_id = uid and id = any(sources);
+end;
+$$;
+
+revoke all on function public.merge_categories(uuid, uuid[]) from public;
+grant execute on function public.merge_categories(uuid, uuid[]) to authenticated;
 
 notify pgrst, 'reload schema';
 

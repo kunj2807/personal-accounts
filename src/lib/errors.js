@@ -16,6 +16,10 @@ export function friendlyError(error) {
     return 'The database schema is out of date. Run supabase/schema.sql in the Supabase SQL editor, then reload the API schema.'
   }
 
+  if (/merge_categories/i.test(message) && /could not find|schema cache|does not exist/i.test(message)) {
+    return 'Category merge is not available yet. Run supabase/schema.sql in the Supabase SQL editor, then try again.'
+  }
+
   if (/schema cache/i.test(message)) {
     return error.message || 'Supabase has not picked up the latest tables yet. In the SQL editor run: notify pgrst, \'reload schema\';'
   }

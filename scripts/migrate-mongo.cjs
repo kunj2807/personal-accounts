@@ -303,7 +303,6 @@ async function main() {
       user_id: userId,
       name,
       enable: category.enable !== false,
-      is_ledger: category.ledger === true,
       created_at: stamp(category.date),
     })
   }

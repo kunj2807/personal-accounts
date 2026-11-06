@@ -181,10 +181,9 @@ export const banksApi = {
 }
 
 export const categoriesApi = {
-  async list({ ledgersOnly = false, enabledOnly = true } = {}) {
+  async list({ enabledOnly = true } = {}) {
     const result = await withAuth(() => {
-      let request = supabase.from('categories').select('id, name, enable, is_ledger').order('name')
-      if (ledgersOnly) request = request.eq('is_ledger', true)
+      let request = supabase.from('categories').select('id, name, enable').order('name')
       if (enabledOnly) request = request.eq('enable', true)
       return request
     })
@@ -196,7 +195,7 @@ export const categoriesApi = {
     const result = await withAuth(() => {
       let request = supabase
         .from('categories')
-        .select('id, name, enable, is_ledger, created_at', { count: 'exact' })
+        .select('id, name, enable, created_at', { count: 'exact' })
       if (search) request = request.ilike('name', `%${search}%`)
       return request.order('created_at', { ascending: false }).range(from, to)
     })
@@ -217,9 +216,8 @@ export const categoriesApi = {
           user_id,
           name: payload.name.trim(),
           enable: payload.enable ?? true,
-          is_ledger: Boolean(payload.is_ledger),
         })
-        .select('id, name, enable, is_ledger')
+        .select('id, name, enable')
         .single(),
     )
     return result.data
@@ -227,13 +225,17 @@ export const categoriesApi = {
 
   async update(id, payload) {
     const result = await withAuth(() =>
-      supabase.from('categories').update(payload).eq('id', id).select('id, name, enable, is_ledger').single(),
+      supabase.from('categories').update(payload).eq('id', id).select('id, name, enable').single(),
     )
     return result.data
   },
 
   async remove(id) {
     await withAuth(() => supabase.from('categories').delete().eq('id', id))
+  },
+
+  async merge(targetId, sourceIds) {
+    await withAuth(() => supabase.rpc('merge_categories', { p_target: targetId, p_sources: sourceIds }))
   },
 }
 

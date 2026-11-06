@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import EntryLines from '../components/EntryLines'
-import { BadgeButton, Button, Card, Input, Modal, MultiSelect, NativeSelect, Pagination, Spinner, StatusWrapper, Table, Title } from '../components/ui'
+import { BadgeButton, Button, Card, Input, Modal, MultiSelect, NativeSelect, Pagination, SearchSelect, Spinner, StatusWrapper, Table, Title } from '../components/ui'
 import { banksApi, categoriesApi, lendingApi } from '../lib/api'
 import { friendlyError } from '../lib/errors'
 import { askFilename, formatAmount, formatDate, todayISO } from '../lib/utils'
@@ -26,7 +26,7 @@ export default function LendingBorrowing() {
   const [draft, setDraft] = useState(emptyFilters)
   const [view, setView] = useState(null)
   const [edit, setEdit] = useState(null)
-  const categories = useResource(() => categoriesApi.list({ ledgersOnly: true }), [])
+  const categories = useResource(() => categoriesApi.list(), [])
   const banks = useResource(() => banksApi.list(), [])
   const list = useResource(() => lendingApi.listPage({ ...filters, ledgers: filters.categories, page, limit }), [filters, page, limit])
   const bankOptions = [{ id: '', name: 'Select' }, ...(banks.data || []).map((item) => ({ id: item.id, name: item.name }))]
@@ -101,8 +101,8 @@ export default function LendingBorrowing() {
           columns={[
             { key: 'date', label: 'Date', type: 'date' },
             { key: 'type', label: 'Type', type: 'select', options: [{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }] },
-            { key: 'bank_id', label: 'Bank', type: 'select', options: bankOptions },
-            { key: 'category_id', label: 'From/To', type: 'select', options: ledgerOptions },
+            { key: 'bank_id', label: 'Bank', type: 'select', search: true, options: bankOptions },
+            { key: 'category_id', label: 'From/To', type: 'select', search: true, options: ledgerOptions },
             { key: 'amount', label: 'Amount', type: 'number' },
             { key: 'due_date', label: 'Due Date', type: 'date' },
             { key: 'description', label: 'Description', placeholder: 'Enter description' },
@@ -202,8 +202,8 @@ export default function LendingBorrowing() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Input label="Date" type="date" value={edit.date} onChange={(event) => setEdit({ ...edit, date: event.target.value })} />
               <NativeSelect label="Type" value={edit.type} onChange={(event) => setEdit({ ...edit, type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} />
-              <NativeSelect label="Bank" value={edit.bank_id || ''} onChange={(event) => setEdit({ ...edit, bank_id: event.target.value })} options={bankOptions} />
-              <NativeSelect label="From/To" value={edit.category_id || ''} onChange={(event) => setEdit({ ...edit, category_id: event.target.value })} options={ledgerOptions} />
+              <SearchSelect label="Bank" value={edit.bank_id || ''} onChange={(value) => setEdit({ ...edit, bank_id: value })} options={bankOptions} />
+              <SearchSelect label="From/To" value={edit.category_id || ''} onChange={(value) => setEdit({ ...edit, category_id: value })} options={ledgerOptions} />
               <Input label="Amount" type="number" value={edit.amount} onChange={(event) => setEdit({ ...edit, amount: event.target.value })} />
               <Input label="Due Date" type="date" value={edit.due_date || ''} onChange={(event) => setEdit({ ...edit, due_date: event.target.value })} />
               <Input label="Description" value={edit.description || ''} onChange={(event) => setEdit({ ...edit, description: event.target.value })} />
@@ -224,7 +224,7 @@ export default function LendingBorrowing() {
                       <td className="px-3 py-2">{index + 1}</td>
                       <td className="px-3 py-2"><Input type="date" className="min-w-[100px]" value={item.date} onChange={(event) => updateItem(setEdit, edit, index, { date: event.target.value })} /></td>
                       <td className="px-3 py-2"><NativeSelect className="min-w-[100px]" value={item.type} onChange={(event) => updateItem(setEdit, edit, index, { type: event.target.value })} options={[{ id: 'Debit', name: 'Debit' }, { id: 'Credit', name: 'Credit' }]} /></td>
-                      <td className="px-3 py-2"><NativeSelect className="min-w-[100px]" value={item.bank_id || ''} onChange={(event) => updateItem(setEdit, edit, index, { bank_id: event.target.value })} options={bankOptions} /></td>
+                      <td className="px-3 py-2"><SearchSelect className="min-w-[160px]" value={item.bank_id || ''} onChange={(value) => updateItem(setEdit, edit, index, { bank_id: value })} options={bankOptions} /></td>
                       <td className="px-3 py-2"><Input type="number" className="min-w-[100px]" value={item.amount} onChange={(event) => updateItem(setEdit, edit, index, { amount: event.target.value })} /></td>
                       <td className="px-3 py-2"><Input className="min-w-[200px]" value={item.description || ''} onChange={(event) => updateItem(setEdit, edit, index, { description: event.target.value })} /></td>
                       <td className="px-2 py-2">

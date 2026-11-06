@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { BadgeButton, Button, Input, NativeSelect } from './ui'
+import { BadgeButton, Button, Input, NativeSelect, SearchSelect } from './ui'
 
 export default function EntryLines({ columns, rows, onChange, onSubmit, submitting }) {
   const update = (index, field, value) => {
@@ -31,7 +31,9 @@ export default function EntryLines({ columns, rows, onChange, onSubmit, submitti
               <tr key={index}>
                 {columns.map((column) => (
                   <td key={column.key} className="px-4 py-3">
-                    {column.type === 'select' ? (
+                    {column.type === 'select' && column.search ? (
+                      <SearchSelect className="min-w-[180px]" value={row[column.key] || ''} onChange={(value) => update(index, column.key, value)} options={column.options} />
+                    ) : column.type === 'select' ? (
                       <NativeSelect className="min-w-[140px]" value={row[column.key] || ''} onChange={(event) => update(index, column.key, event.target.value)} options={column.options} />
                     ) : (
                       <Input className="min-w-[120px]" type={column.type || 'text'} value={row[column.key] ?? ''} min={column.type === 'number' ? 0 : undefined} placeholder={column.placeholder} onChange={(event) => update(index, column.key, column.type === 'number' ? event.target.value : event.target.value)} />
