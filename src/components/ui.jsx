@@ -165,6 +165,8 @@ export function Modal({ open, onClose, children, title, className }) {
   )
 }
 
+const moneyColumnKeys = new Set(['amount', 'remaining_amount', 'debit', 'credit', 'balance'])
+
 export function Table({ columns, data, emptyText = 'No data found', onRowClick, renderExpandedRow, expandedRowId, page, limit, className }) {
   return (
     <div className={twMerge('max-h-[80vh] overflow-auto rounded-lg border border-purple-200/50 bg-gradient-to-br from-white to-purple-50/30 dark:border-purple-500/20 dark:from-zinc-900 dark:to-purple-900/10', className)}>
@@ -173,7 +175,7 @@ export function Table({ columns, data, emptyText = 'No data found', onRowClick, 
           <tr>
             {page && limit && <th className="px-3 py-4 text-left text-sm font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">Sr.No.</th>}
             {columns.map((column, columnIndex) => (
-              <th key={column.key || columnIndex} className="px-3 py-4 text-left text-sm font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+              <th key={column.key || columnIndex} className={cn('px-3 py-4 text-left text-sm font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300', moneyColumnKeys.has(column.key) && 'min-w-[8rem] whitespace-nowrap')}>
                 {column.label}
               </th>
             ))}
@@ -192,7 +194,7 @@ export function Table({ columns, data, emptyText = 'No data found', onRowClick, 
                 <tr onClick={() => onRowClick?.(row)} className={onRowClick ? 'cursor-pointer' : ''}>
                   {page && limit && <td className="px-3 py-2 text-lg text-gray-700 dark:text-gray-300">{index + 1 + (page - 1) * limit}</td>}
                   {columns.map((column, columnIndex) => (
-                    <td key={column.key || columnIndex} className={cn('px-3 py-2 align-middle text-lg text-gray-700 group-hover:bg-purple-50/50 dark:text-gray-300', columnIndex === columns.length - 1 && 'text-center', column.className)}>
+                    <td key={column.key || columnIndex} className={cn('px-3 py-2 align-middle text-lg text-gray-700 group-hover:bg-purple-50/50 dark:text-gray-300', columnIndex === columns.length - 1 && 'text-center', moneyColumnKeys.has(column.key) && 'min-w-[8rem] whitespace-nowrap', column.className)}>
                       {column.render ? column.render(row, index) : row[column.key]}
                     </td>
                   ))}
