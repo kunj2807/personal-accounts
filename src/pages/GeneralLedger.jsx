@@ -15,7 +15,9 @@ export default function GeneralLedger() {
   const [ledgers, setLedgers] = useState([])
   const [banks, setBanks] = useState([])
   const [rows, setRows] = useState([])
+  const [applied, setApplied] = useState({ startDate: monthStartISO(), endDate: todayISO(), banks: [] })
   const [expanded, setExpanded] = useState(null)
+  const [detailId, setDetailId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState('')
   const [error, setError] = useState('')
@@ -25,13 +27,11 @@ export default function GeneralLedger() {
   const generate = async (payload = { startDate, endDate, ledgers: ledgers.map((item) => item.id), banks: banks.map((item) => item.id) }) => {
     setLoading(true)
     setError('')
+    setExpanded(null)
     try {
       const result = await reportsApi.generalLedger(payload)
-      setRows(result.map((item) => {
-        const debit = item.data.reduce((sum, entry) => sum + Number(entry.debit || 0), 0)
-        const credit = item.data.reduce((sum, entry) => sum + Number(entry.credit || 0), 0)
-        return { ...item, debit, credit, balance: credit - debit }
-      }))
+      setApplied({ startDate: payload.startDate, endDate: payload.endDate, banks: payload.banks })
+      setRows(result)
     } catch (err) {
       setError(friendlyError(err))
       toast.error('Failed to generate report')
@@ -43,6 +43,31 @@ export default function GeneralLedger() {
   useEffect(() => {
     generate({ startDate: monthStartISO(), endDate: todayISO(), ledgers: [], banks: [] })
   }, [])
+
+  const openRow = async (row) => {
+    if (!row.debit && !row.credit) return
+    if (expanded === row.id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(row.id)
+    if (row.data) return
+    setDetailId(row.id)
+    try {
+      const data = await reportsApi.generalLedgerEntries({
+        categoryId: row.id,
+        startDate: applied.startDate,
+        endDate: applied.endDate,
+        banks: applied.banks,
+      })
+      setRows((current) => current.map((item) => (item.id === row.id ? { ...item, data } : item)))
+    } catch (err) {
+      setExpanded(null)
+      toast.error(friendlyError(err))
+    } finally {
+      setDetailId((current) => (current === row.id ? null : current))
+    }
+  }
 
   const exportPdf = () => {
     const name = askFilename('general-ledger.pdf')
@@ -85,7 +110,7 @@ export default function GeneralLedger() {
             limit={10}
             data={rows}
             expandedRowId={expanded}
-            onRowClick={(row) => row.data.length && setExpanded(expanded === row.id ? null : row.id)}
+            onRowClick={openRow}
             columns={[
               { key: 'name', label: 'Ledger', render: (row) => <div className="flex items-center gap-2">{expanded === row.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span>{row.name}</span></div> },
               { key: 'debit', label: 'Debit', render: (row) => formatAmount(row.debit) },
@@ -94,22 +119,26 @@ export default function GeneralLedger() {
             ]}
             renderExpandedRow={(row) => (
               <div className="bg-card p-4">
-                <Table
-                  page={1}
-                  limit={10}
-                  data={row.data}
-                  columns={[
-                    { key: 'date', label: 'Date', render: (entry) => formatDate(entry.date) },
-                    { key: 'description', label: 'Description' },
-                    { key: 'debit', label: 'Debit', render: (entry) => (entry.debit ? formatAmount(entry.debit) : '-') },
-                    { key: 'credit', label: 'Credit', render: (entry) => (entry.credit ? formatAmount(entry.credit) : '-') },
-                    { key: 'bank', label: 'Bank', render: (entry) => entry.bank?.name || '-' },
-                    { key: 'amount', label: 'Balance', render: (_entry, index) => {
-                      const running = row.data.slice(0, index + 1).reduce((sum, item) => sum + Number(item.credit || 0) - Number(item.debit || 0), 0)
-                      return <div className={running >= 0 ? 'text-green-600' : 'text-red-600'}>{formatAmount(running)}</div>
-                    } },
-                  ]}
-                />
+                {detailId === row.id || !row.data ? (
+                  <div className="py-6 text-center text-gray-500">Loading...</div>
+                ) : (
+                  <Table
+                    page={1}
+                    limit={10}
+                    data={row.data}
+                    columns={[
+                      { key: 'date', label: 'Date', render: (entry) => formatDate(entry.date) },
+                      { key: 'description', label: 'Description' },
+                      { key: 'debit', label: 'Debit', render: (entry) => (entry.debit ? formatAmount(entry.debit) : '-') },
+                      { key: 'credit', label: 'Credit', render: (entry) => (entry.credit ? formatAmount(entry.credit) : '-') },
+                      { key: 'bank', label: 'Bank', render: (entry) => entry.bank?.name || '-' },
+                      { key: 'amount', label: 'Balance', render: (_entry, index) => {
+                        const running = row.data.slice(0, index + 1).reduce((sum, item) => sum + Number(item.credit || 0) - Number(item.debit || 0), 0)
+                        return <div className={running >= 0 ? 'text-green-600' : 'text-red-600'}>{formatAmount(running)}</div>
+                      } },
+                    ]}
+                  />
+                )}
               </div>
             )}
           />

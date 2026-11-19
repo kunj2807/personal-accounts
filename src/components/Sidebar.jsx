@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeftRight, BarChart2, Boxes, ChevronLeft, ChevronRight, CreditCard, DollarSign, File, FileText, LayoutDashboard } from 'lucide-react'
+import { ArrowLeftRight, BarChart2, Boxes, ChevronLeft, ChevronRight, CreditCard, DollarSign, File, FileText, History, LayoutDashboard } from 'lucide-react'
 import { formsApi } from '../lib/api'
 import { cn } from '../lib/utils'
 import { Separator, Title } from './ui'
@@ -12,6 +12,7 @@ const menuItems = [
   { icon: FileText, label: 'Deposite Withdraw', path: '/deposite-withdraw' },
   { icon: ArrowLeftRight, label: 'Self Transfer', path: '/self-transfer' },
   { icon: File, label: 'Custom Form', path: '/custom-form' },
+  { icon: History, label: 'Activity Logs', path: '/activity-logs' },
   {
     icon: Boxes,
     label: 'Masters',
@@ -30,6 +31,18 @@ const menuItems = [
   },
 ]
 
+let sidebarRequest = null
+
+function loadSidebar(force = false) {
+  if (force || !sidebarRequest) {
+    sidebarRequest = formsApi.sidebar().catch((error) => {
+      sidebarRequest = null
+      throw error
+    })
+  }
+  return sidebarRequest
+}
+
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [openMenu, setOpenMenu] = useState(null)
@@ -40,21 +53,22 @@ export default function Sidebar() {
 
   useEffect(() => {
     let active = true
-    formsApi
-      .sidebar()
-      .then((rows) => {
-        if (active) setCustomSidebar(rows)
-      })
-      .catch(() => {
-        if (active) setCustomSidebar([])
-      })
-    const refresh = () => formsApi.sidebar().then(setCustomSidebar).catch(() => {})
-    window.addEventListener('forms-changed', refresh)
+    const refresh = (force = false) =>
+      loadSidebar(force === true)
+        .then((rows) => {
+          if (active) setCustomSidebar(rows)
+        })
+        .catch(() => {
+          if (active) setCustomSidebar([])
+        })
+    refresh()
+    const onFormsChanged = () => refresh(true)
+    window.addEventListener('forms-changed', onFormsChanged)
     return () => {
       active = false
-      window.removeEventListener('forms-changed', refresh)
+      window.removeEventListener('forms-changed', onFormsChanged)
     }
-  }, [pathname])
+  }, [])
 
   const go = (path) => {
     navigate(path)

@@ -20,6 +20,14 @@ export function friendlyError(error) {
     return 'Category merge is not available yet. Run supabase/schema.sql in the Supabase SQL editor, then try again.'
   }
 
+  if (/delete_own_account/i.test(message) && /could not find|schema cache|does not exist/i.test(message)) {
+    return 'Account deletion is not available yet. Run supabase/schema.sql in the Supabase SQL editor, then try again.'
+  }
+
+  if (/accept_own_consent/i.test(message) && /could not find|schema cache|does not exist/i.test(message)) {
+    return 'Consent cannot be saved yet. Run supabase/schema.sql in the Supabase SQL editor, then try again.'
+  }
+
   if (/schema cache/i.test(message)) {
     return error.message || 'Supabase has not picked up the latest tables yet. In the SQL editor run: notify pgrst, \'reload schema\';'
   }

@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Chart from 'react-apexcharts'
 import { ArrowDown, ArrowUp } from 'lucide-react'
-import { banksApi, categoriesApi, dashboardApi, lendingApi } from '../lib/api'
+import { dashboardApi, lendingApi } from '../lib/api'
+import { friendlyError } from '../lib/errors'
 import { formatAmount, formatDate, todayISO } from '../lib/utils'
 import { useResource } from '../lib/useResource'
 import { useTheme } from '../context/ThemeContext'
@@ -19,21 +20,15 @@ const gradients = [
 ]
 const accents = ['bg-purple-400', 'bg-orange-400', 'bg-blue-400', 'bg-green-500', 'bg-pink-400', 'bg-yellow-400']
 
-function bucket(row) {
-  const remaining = Number(row.remaining_amount) || 0
-  if (remaining === 0) return 'done'
-  const due = row.due_date
-  const today = new Date()
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  if (!due || due > todayIso) return 'upcoming'
-  if (due < todayIso) return 'overdue'
-  return 'today'
-}
+const emptyCounts = { today: 0, upcoming: 0, overdue: 0, done: 0 }
 
 export default function Dashboard() {
   const [summaryType, setSummaryType] = useState('Total')
   const [tab, setTab] = useState('credit')
   const [modalSection, setModalSection] = useState(null)
+  const [modalRows, setModalRows] = useState([])
+  const [modalLoading, setModalLoading] = useState(false)
+  const [modalError, setModalError] = useState('')
   const yearNow = new Date().getFullYear()
   const [year, setYear] = useState(String(yearNow))
   const [chartType, setChartType] = useState('Total')
@@ -42,11 +37,9 @@ export default function Dashboard() {
   const { theme } = useTheme()
   const dark = theme === 'dark' || document.documentElement.classList.contains('dark')
 
-  const widgets = useResource(() => dashboardApi.widgets(summaryType), [summaryType])
-  const reminders = useResource(() => lendingApi.listAll(), [])
+  const widgets = useResource(() => dashboardApi.widgets(), [])
+  const reminders = useResource(() => lendingApi.reminderSummary(), [])
   const balances = useResource(() => dashboardApi.balances(), [])
-  const categories = useResource(() => categoriesApi.list(), [])
-  const banks = useResource(() => banksApi.list(), [])
   const major = useResource(async () => {
     const bounds = { from: daysAgoISO(30), to: todayISO() }
     const [debits, credits] = await Promise.all([
@@ -60,36 +53,53 @@ export default function Dashboard() {
     [year, chartType, selectedCategories, selectedBanks],
   )
 
-  const grouped = useMemo(() => {
-    const empty = () => ({ today: [], upcoming: [], overdue: [], done: [] })
-    const result = { credit: empty(), debit: empty() }
-    for (const row of reminders.data || []) {
-      const key = row.type === 'Credit' ? 'credit' : 'debit'
-      result[key][bucket(row)].push(row)
-    }
-    return result
-  }, [reminders.data])
-
-  const section = tab === 'total'
-    ? {
-        today: [...grouped.credit.today, ...grouped.debit.today],
-        upcoming: [...grouped.credit.upcoming, ...grouped.debit.upcoming],
-        overdue: [...grouped.credit.overdue, ...grouped.debit.overdue],
-        done: [...grouped.credit.done, ...grouped.debit.done],
-      }
-    : grouped[tab]
-
-  const amountOf = (rows, signed) => rows.reduce((sum, row) => sum + (signed && row.type === 'Credit' ? -Number(row.remaining_amount) : Number(row.remaining_amount)), 0)
+  const credit = reminders.data?.credit
+  const debit = reminders.data?.debit
+  const counts = !credit || !debit
+    ? emptyCounts
+    : tab === 'credit'
+      ? credit
+      : tab === 'debit'
+        ? debit
+        : {
+            today: credit.today + debit.today,
+            upcoming: credit.upcoming + debit.upcoming,
+            overdue: credit.overdue + debit.overdue,
+            done: credit.done + debit.done,
+          }
   const tabAmounts = {
-    credit: amountOf([...grouped.credit.today, ...grouped.credit.upcoming, ...grouped.credit.overdue, ...grouped.credit.done]),
-    debit: amountOf([...grouped.debit.today, ...grouped.debit.upcoming, ...grouped.debit.overdue, ...grouped.debit.done]),
-    total: amountOf([...grouped.credit.today, ...grouped.credit.upcoming, ...grouped.credit.overdue, ...grouped.credit.done, ...grouped.debit.today, ...grouped.debit.upcoming, ...grouped.debit.overdue, ...grouped.debit.done], true),
+    credit: credit?.amount || 0,
+    debit: debit?.amount || 0,
+    total: (debit?.amount || 0) - (credit?.amount || 0),
   }
+
+  useEffect(() => {
+    if (!modalSection) return undefined
+    let active = true
+    setModalLoading(true)
+    setModalError('')
+    setModalRows([])
+    lendingApi
+      .listByStatus({ type: tab, status: modalSection })
+      .then((rows) => {
+        if (active) setModalRows(rows)
+      })
+      .catch((error) => {
+        if (active) setModalError(friendlyError(error))
+      })
+      .finally(() => {
+        if (active) setModalLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [modalSection, tab])
 
   return (
     <div className="flex flex-wrap font-sans">
       <div className="flex-grow p-2 lg:w-1/2">
         <Card title="Reminders">
+          {reminders.error ? <div className="p-4 text-center text-red-500">{reminders.error}</div> : null}
           <div className="mb-4 flex border-b border-purple-100 dark:border-zinc-700">
             {['credit', 'debit', 'total'].map((key) => (
               <button key={key} type="button" onClick={() => setTab(key)} className={`flex flex-1 cursor-pointer flex-col items-center py-2 text-lg font-semibold ${tab === key ? 'border-b-2 border-purple-700 text-purple-700 dark:text-purple-300' : 'text-gray-500'}`}>
@@ -107,32 +117,38 @@ export default function Dashboard() {
             ].map(([key, label, color]) => (
               <button key={key} type="button" onClick={() => setModalSection(key)} className={`rounded-lg p-4 text-center dark:bg-zinc-800 ${color.split(' ')[0]}`}>
                 <div className="mb-1 text-xs text-gray-500 dark:text-zinc-400">{label}</div>
-                <div className={`text-2xl font-bold ${color.split(' ')[1]}`}>{section[key].length}</div>
+                <div className={`text-2xl font-bold ${color.split(' ')[1]}`}>{reminders.loading ? '…' : counts[key]}</div>
               </button>
             ))}
           </div>
           <Modal open={!!modalSection} onClose={() => setModalSection(null)} title="Transactions" className="max-w-5xl">
-            <Table
-              page={1}
-              limit={10}
-              data={modalSection ? section[modalSection] : []}
-              columns={[
-                { key: 'date', label: 'Date', render: (row) => formatDate(row.date) },
-                { key: 'type', label: 'Type' },
-                { key: 'amount', label: 'Amount', render: (row) => formatAmount(row.amount) },
-                { key: 'bank', label: 'Bank', render: (row) => row.bank?.name || '-' },
-                { key: 'due_date', label: 'Due Date', render: (row) => formatDate(row.due_date) },
-                { key: 'category', label: 'From/To', render: (row) => row.category?.name || '-' },
-                { key: 'remaining_amount', label: 'Pending', render: (row) => formatAmount(row.remaining_amount) },
-                { key: 'description', label: 'Description', render: (row) => row.description || '-' },
-              ]}
-            />
+            {modalLoading ? (
+              <div className="flex justify-center py-10"><Spinner /></div>
+            ) : modalError ? (
+              <div className="p-4 text-center text-red-500">{modalError}</div>
+            ) : (
+              <Table
+                page={1}
+                limit={10}
+                data={modalRows}
+                columns={[
+                  { key: 'date', label: 'Date', render: (row) => formatDate(row.date) },
+                  { key: 'type', label: 'Type' },
+                  { key: 'amount', label: 'Amount', render: (row) => formatAmount(row.amount) },
+                  { key: 'bank', label: 'Bank', render: (row) => row.bank?.name || '-' },
+                  { key: 'due_date', label: 'Due Date', render: (row) => formatDate(row.due_date) },
+                  { key: 'category', label: 'From/To', render: (row) => row.category?.name || '-' },
+                  { key: 'remaining_amount', label: 'Pending', render: (row) => formatAmount(row.remaining_amount) },
+                  { key: 'description', label: 'Description', render: (row) => row.description || '-' },
+                ]}
+              />
+            )}
           </Modal>
         </Card>
       </div>
       <div className="flex-grow p-2 lg:w-1/2">
         <Card title="Summery" titleSlot={<NativeSelect className="min-w-[150px]" value={summaryType} onChange={(event) => setSummaryType(event.target.value)} options={[{ id: 'Credit', name: 'Credit' }, { id: 'Debit', name: 'Debit' }, { id: 'Total', name: 'Total' }]} />}>
-          <div className="grid grid-cols-2 gap-4">
+          {widgets.error ? <div className="p-4 text-center text-red-500">{widgets.error}</div> : <div className="grid grid-cols-2 gap-4">
             {[
               ['today', 'Today', 'from-purple-50 to-purple-100', 'bg-purple-400', 'text-purple-700'],
               ['week', 'This Week', 'from-orange-50 to-orange-100', 'bg-orange-400', 'text-orange-500'],
@@ -143,11 +159,11 @@ export default function Dashboard() {
                 <div className={`h-10 w-2 rounded ${bar}`} />
                 <div>
                   <div className="mb-1 text-xs text-gray-500">{label}</div>
-                  {widgets.loading ? <Spinner /> : <div className={`text-xl font-bold ${text}`}>{formatAmount(widgets.data?.[key] ?? 0)}</div>}
+                  {widgets.loading ? <Spinner /> : <div className={`text-xl font-bold ${text}`}>{formatAmount(widgets.data?.[key]?.[summaryType] ?? 0)}</div>}
                 </div>
               </div>
             ))}
-          </div>
+          </div>}
         </Card>
       </div>
      
@@ -182,8 +198,8 @@ export default function Dashboard() {
           }
         >
           <div className="mb-4 grid gap-3 md:grid-cols-2">
-            <MultiSelect label="Category" options={(categories.data || []).map((item) => ({ id: item.id, name: item.name }))} selectedValues={selectedCategories} onChange={setSelectedCategories} />
-            <MultiSelect label="Bank" options={(banks.data || []).map((item) => ({ id: item.id, name: item.name }))} selectedValues={selectedBanks} onChange={setSelectedBanks} />
+            <MultiSelect label="Category" options={(balances.data?.ledgers || []).map((item) => ({ id: item.id, name: item.name }))} selectedValues={selectedCategories} onChange={setSelectedCategories} />
+            <MultiSelect label="Bank" options={(balances.data?.banks || []).map((item) => ({ id: item.id, name: item.name }))} selectedValues={selectedBanks} onChange={setSelectedBanks} />
           </div>
           {monthly.loading ? (
             <div className="flex justify-center py-16"><Spinner className="h-8 w-8" /></div>

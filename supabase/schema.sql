@@ -149,6 +149,18 @@ create table if not exists public.custom_form_entries (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.activity_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  module_name text not null,
+  action text not null default '',
+  entry_id uuid,
+  old_value jsonb,
+  new_value jsonb,
+  created_at timestamptz not null default now(),
+  constraint activity_logs_module_name_not_blank check (char_length(btrim(module_name)) > 0)
+);
+
 create index if not exists banks_user_idx on public.banks (user_id);
 create index if not exists categories_user_idx on public.categories (user_id);
 create index if not exists entries_user_date_idx on public.entries (user_id, date desc);
@@ -159,6 +171,8 @@ create index if not exists statements_user_date_idx on public.statements (user_i
 create index if not exists statements_category_idx on public.statements (category_id);
 create index if not exists statements_bank_idx on public.statements (bank_id);
 create index if not exists custom_forms_user_idx on public.custom_forms (user_id);
+create index if not exists activity_logs_user_created_idx on public.activity_logs (user_id, created_at desc);
+create index if not exists activity_logs_entry_idx on public.activity_logs (entry_id);
 
 drop trigger if exists banks_set_updated_at on public.banks;
 create trigger banks_set_updated_at before update on public.banks
@@ -202,6 +216,7 @@ alter table public.transfers enable row level security;
 alter table public.statements enable row level security;
 alter table public.custom_forms enable row level security;
 alter table public.custom_form_entries enable row level security;
+alter table public.activity_logs enable row level security;
 
 drop policy if exists banks_owner on public.banks;
 create policy banks_owner on public.banks
@@ -263,6 +278,12 @@ for all to authenticated
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
+drop policy if exists activity_logs_owner on public.activity_logs;
+create policy activity_logs_owner on public.activity_logs
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 
@@ -309,6 +330,20 @@ revoke all on function public.list_form_entries(uuid, text, text, text) from pub
 grant execute on function public.list_form_entries(uuid, text, text, text) to authenticated;
 
 alter table public.categories drop column if exists is_ledger;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'activity_logs'
+      and column_name = 'index'
+  ) then
+    alter table public.activity_logs rename column "index" to action;
+  end if;
+end;
+$$;
 
 create or replace function public.merge_categories(p_target uuid, p_sources uuid[])
 returns void
@@ -371,6 +406,295 @@ $$;
 
 revoke all on function public.merge_categories(uuid, uuid[]) from public;
 grant execute on function public.merge_categories(uuid, uuid[]) to authenticated;
+
+create or replace function public.monthly_entry_totals(
+  p_year integer,
+  p_type text default 'Total',
+  p_categories uuid[] default '{}',
+  p_banks uuid[] default '{}'
+)
+returns table (month integer, total numeric)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select
+    months.month,
+    coalesce(sum(case when e.type = 'Debit' then -e.amount else e.amount end), 0) as total
+  from generate_series(1, 12) as months(month)
+  left join public.entries e
+    on extract(month from e.date)::integer = months.month
+   and e.date >= make_date(p_year, 1, 1)
+   and e.date <= make_date(p_year, 12, 31)
+   and (p_type is null or p_type in ('Total', 'all', 'All') or e.type = p_type)
+   and (cardinality(coalesce(p_categories, '{}')) = 0 or e.category_id = any (p_categories))
+   and (cardinality(coalesce(p_banks, '{}')) = 0 or e.bank_id = any (p_banks))
+  group by months.month
+  order by months.month;
+$$;
+
+revoke all on function public.monthly_entry_totals(integer, text, uuid[], uuid[]) from public;
+grant execute on function public.monthly_entry_totals(integer, text, uuid[], uuid[]) to authenticated;
+
+drop view if exists public.bank_balances;
+create view public.bank_balances
+with (security_invoker = true) as
+select
+  b.id,
+  b.name,
+  b.enable,
+  b.is_cash,
+  b.created_at,
+  coalesce(t.debit, 0) as debit,
+  coalesce(t.credit, 0) as credit
+from public.banks b
+left join lateral (
+  select
+    coalesce(sum(s.debit), 0) as debit,
+    coalesce(sum(s.credit), 0) as credit
+  from public.statements s
+  where s.bank_id = b.id
+) t on true;
+
+grant select on public.bank_balances to authenticated;
+
+drop view if exists public.category_balances;
+create view public.category_balances
+with (security_invoker = true) as
+select
+  c.id,
+  c.name,
+  c.enable,
+  c.created_at,
+  coalesce(t.debit, 0) as debit,
+  coalesce(t.credit, 0) as credit
+from public.categories c
+left join lateral (
+  select
+    coalesce(sum(s.debit), 0) as debit,
+    coalesce(sum(s.credit), 0) as credit
+  from public.statements s
+  where s.category_id = c.id
+) t on true;
+
+grant select on public.category_balances to authenticated;
+
+-- Deletes the signed-in user's books, then the auth account.
+-- Child rows are removed before banks, because transfers block bank deletion.
+create or replace function public.delete_own_account()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  update public.entries
+  set parent_id = null
+  where user_id = uid
+    and parent_id is not null;
+
+  delete from public.statements where user_id = uid;
+  delete from public.transfers where user_id = uid;
+  delete from public.lending_items where user_id = uid;
+  delete from public.lending_entries where user_id = uid;
+  delete from public.entries where user_id = uid;
+  delete from public.deposits where user_id = uid;
+  delete from public.custom_form_entries where user_id = uid;
+  delete from public.custom_forms where user_id = uid;
+  delete from public.activity_logs where user_id = uid;
+  delete from public.categories where user_id = uid;
+  delete from public.banks where user_id = uid;
+  delete from public.users where id = uid;
+
+  delete from auth.users where id = uid;
+end;
+$$;
+
+revoke all on function public.delete_own_account() from public;
+revoke all on function public.delete_own_account() from anon;
+grant execute on function public.delete_own_account() to authenticated;
+
+create table if not exists public.users (
+  id uuid primary key references auth.users (id) on delete cascade,
+  name text not null default '',
+  email text not null default '',
+  consent_accepted boolean not null default false,
+  consent_accepted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists users_set_updated_at on public.users;
+create trigger users_set_updated_at before update on public.users
+for each row execute function public.set_updated_at();
+
+alter table public.users enable row level security;
+
+drop policy if exists users_owner_select on public.users;
+create policy users_owner_select on public.users
+for select to authenticated
+using (id = auth.uid());
+
+grant select on public.users to authenticated;
+
+-- Copies a new sign-in account into public.users and records consent in the activity log.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  display_name text;
+  accepted boolean;
+  accepted_at timestamptz;
+  accepted_text text;
+begin
+  display_name := coalesce(nullif(btrim(new.raw_user_meta_data->>'name'), ''), '');
+  accepted_text := lower(btrim(coalesce(new.raw_user_meta_data->>'consent_accepted', '')));
+  accepted := accepted_text in ('true', 't', '1', 'yes');
+
+  if accepted then
+    begin
+      accepted_at := nullif(btrim(coalesce(new.raw_user_meta_data->>'consent_accepted_at', '')), '')::timestamptz;
+    exception
+      when others then
+        accepted_at := null;
+    end;
+    if accepted_at is null then
+      accepted_at := now();
+    end if;
+  else
+    accepted_at := null;
+  end if;
+
+  insert into public.users (id, name, email, consent_accepted, consent_accepted_at)
+  values (new.id, display_name, coalesce(new.email, ''), accepted, accepted_at);
+
+  if accepted then
+    insert into public.activity_logs (user_id, module_name, action, entry_id, new_value)
+    values (
+      new.id,
+      'User',
+      'add',
+      new.id,
+      jsonb_build_object(
+        'name', display_name,
+        'email', coalesce(new.email, ''),
+        'consent_accepted', true,
+        'consent_accepted_at', accepted_at
+      )
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.handle_new_user() from public;
+revoke all on function public.handle_new_user() from anon;
+revoke all on function public.handle_new_user() from authenticated;
+grant execute on function public.handle_new_user() to supabase_auth_admin;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+insert into public.users (id, name, email, consent_accepted, consent_accepted_at)
+select
+  u.id,
+  coalesce(nullif(btrim(u.raw_user_meta_data->>'name'), ''), ''),
+  coalesce(u.email, ''),
+  false,
+  null
+from auth.users u
+where not exists (
+  select 1 from public.users existing where existing.id = u.id
+);
+
+-- Records consent for an existing signed-in user and writes an activity log.
+create or replace function public.accept_own_consent()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uid uuid := auth.uid();
+  existing public.users%rowtype;
+  display_name text := '';
+  display_email text := '';
+  accepted_at timestamptz := now();
+  result public.users%rowtype;
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(uid::text, 0));
+
+  select * into existing from public.users where id = uid;
+  if existing.id is not null and existing.consent_accepted then
+    return to_jsonb(existing);
+  end if;
+
+  select
+    coalesce(nullif(btrim(u.raw_user_meta_data->>'name'), ''), ''),
+    coalesce(u.email, '')
+  into display_name, display_email
+  from auth.users u
+  where u.id = uid;
+
+  if existing.id is null then
+    insert into public.users (id, name, email, consent_accepted, consent_accepted_at)
+    values (uid, display_name, display_email, true, accepted_at)
+    returning * into result;
+  else
+    update public.users
+    set consent_accepted = true,
+        consent_accepted_at = accepted_at
+    where id = uid
+    returning * into result;
+  end if;
+
+  insert into public.activity_logs (user_id, module_name, action, entry_id, old_value, new_value)
+  values (
+    uid,
+    'User',
+    case when existing.id is null then 'add' else 'edit' end,
+    uid,
+    case
+      when existing.id is null then null
+      else jsonb_build_object(
+        'name', existing.name,
+        'email', existing.email,
+        'consent_accepted', false,
+        'consent_accepted_at', existing.consent_accepted_at
+      )
+    end,
+    jsonb_build_object(
+      'name', result.name,
+      'email', result.email,
+      'consent_accepted', true,
+      'consent_accepted_at', result.consent_accepted_at
+    )
+  );
+
+  return to_jsonb(result);
+end;
+$$;
+
+revoke all on function public.accept_own_consent() from public;
+revoke all on function public.accept_own_consent() from anon;
+grant execute on function public.accept_own_consent() to authenticated;
 
 notify pgrst, 'reload schema';
 

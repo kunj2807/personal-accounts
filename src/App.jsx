@@ -1,8 +1,13 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import AdminLayout from './components/AdminLayout'
+import AdminLayout, { LegalLayout } from './components/AdminLayout'
+import ConsentGate from './components/ConsentGate'
 import { GuestRoute, ProtectedRoute } from './components/ProtectedRoute'
+import Account from './pages/Account'
+import ActivityLogDetail from './pages/ActivityLogDetail'
+import ActivityLogs from './pages/ActivityLogs'
 import BankMaster from './pages/BankMaster'
 import CategoryMaster from './pages/CategoryMaster'
+import Contact from './pages/Contact'
 import CustomFormDetail from './pages/CustomFormDetail'
 import CustomForms from './pages/CustomForms'
 import Dashboard from './pages/Dashboard'
@@ -13,19 +18,28 @@ import IncomeExpense from './pages/IncomeExpense'
 import LedgerStatement from './pages/LedgerStatement'
 import LendingBorrowing from './pages/LendingBorrowing'
 import Login from './pages/Login'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 import ResetPassword from './pages/ResetPassword'
 import SelfTransfer from './pages/SelfTransfer'
 import Signup from './pages/Signup'
+import Terms from './pages/Terms'
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <ConsentGate />
+      <Routes>
       <Route element={<GuestRoute />}>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
       </Route>
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route element={<LegalLayout />}>
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/contact" element={<Contact />} />
+      </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<AdminLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -40,9 +54,13 @@ export default function App() {
           <Route path="masters/bank" element={<BankMaster />} />
           <Route path="reports/general-ledger" element={<GeneralLedger />} />
           <Route path="reports/ledger-statement" element={<LedgerStatement />} />
+          <Route path="activity-logs" element={<ActivityLogs />} />
+          <Route path="activity-logs/:id" element={<ActivityLogDetail />} />
+          <Route path="account" element={<Account />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    </>
   )
 }

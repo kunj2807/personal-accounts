@@ -1,6 +1,7 @@
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
+import { ConsentField } from '../components/ConsentField'
 import { Button, Card, Input } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import { friendlyAuthError } from '../lib/errors'
@@ -34,6 +35,12 @@ export default function Signup() {
           <Input label="Email" id="email" placeholder="you@example.com" error={errors.email?.message} {...register('email', { required: 'Email is required' })} />
           <Input label="Password" id="password" type="password" placeholder="••••••••" error={errors.password?.message} {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Password must be at least 6 characters' } })} />
           <Input label="Confirm Password" id="confirmPassword" type="password" placeholder="••••••••" error={errors.confirmPassword?.message} {...register('confirmPassword', { required: 'Confirm Password is required', validate: (value) => value === watch('password') || 'Passwords do not match' })} />
+          <ConsentField
+            error={errors.consentAccepted?.message}
+            {...register('consentAccepted', {
+              required: 'Confirm that you are 18 or have parent consent, and accept the Terms and Privacy Policy.',
+            })}
+          />
           <Button type="submit" className="w-full" loading={isSubmitting}>Sign Up</Button>
         </form>
         <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-300">

@@ -1,12 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { banksApi } from '../lib/api'
+import { accountApi, banksApi } from '../lib/api'
+import { friendlyError } from '../lib/errors'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
+const cashReady = new Set()
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileError, setProfileError] = useState('')
 
   useEffect(() => {
     if (!supabase) {
@@ -35,8 +40,43 @@ export function AuthProvider({ children }) {
   }, [])
 
   useEffect(() => {
-    if (!session) return undefined
-    banksApi.ensureCash().catch(() => {})
+    const userId = session?.user?.id
+    if (!userId) {
+      setProfile(null)
+      setProfileError('')
+      setProfileLoading(false)
+      return undefined
+    }
+
+    let active = true
+    setProfileLoading(true)
+    setProfileError('')
+    accountApi.profile()
+      .then((row) => {
+        if (!active) return
+        setProfile(row)
+      })
+      .catch((error) => {
+        if (!active) return
+        setProfile(null)
+        setProfileError(friendlyError(error))
+      })
+      .finally(() => {
+        if (active) setProfileLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return undefined
+    const key = `cash-bank:${userId}`
+    if (cashReady.has(userId) || sessionStorage.getItem(key) === '1') return undefined
+    cashReady.add(userId)
+    banksApi.ensureCash().then(() => sessionStorage.setItem(key, '1')).catch(() => cashReady.delete(userId))
     return undefined
   }, [session?.user?.id])
 
@@ -45,6 +85,9 @@ export function AuthProvider({ children }) {
       session,
       user: session?.user ?? null,
       loading,
+      profile,
+      profileLoading,
+      profileError,
       async signIn(email, password) {
         if (!supabase) throw configError()
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -54,18 +97,43 @@ export function AuthProvider({ children }) {
         if (error) throw error
         return data
       },
-      async signUp({ name, email, password }) {
+      async signUp({ name, email, password, consentAccepted }) {
         if (!supabase) throw configError()
+        if (!consentAccepted) {
+          const error = new Error('Confirm that you are 18 or have parent consent, and accept the Terms and Privacy Policy.')
+          error.code = 'CONSENT_REQUIRED'
+          throw error
+        }
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
-            data: { name: name.trim() },
+            data: {
+              name: name.trim(),
+              consent_accepted: true,
+              consent_accepted_at: new Date().toISOString(),
+            },
             emailRedirectTo: `${window.location.origin}/login`,
           },
         })
         if (error) throw error
         return data
+      },
+      async acceptConsent() {
+        if (!supabase) throw configError()
+        const row = await accountApi.acceptConsent()
+        setProfile(row)
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              consent_accepted: true,
+              consent_accepted_at: row?.consent_accepted_at,
+            },
+          })
+        } catch {
+          // The user row and activity log are already saved.
+        }
+        return row
       },
       async sendReset(email) {
         if (!supabase) throw configError()
@@ -88,7 +156,7 @@ export function AuthProvider({ children }) {
         setSession(null)
       },
     }),
-    [session, loading],
+    [session, loading, profile, profileLoading, profileError],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
