@@ -696,6 +696,9 @@ revoke all on function public.accept_own_consent() from public;
 revoke all on function public.accept_own_consent() from anon;
 grant execute on function public.accept_own_consent() to authenticated;
 
+ALTER ROLE authenticator
+SET pgrst.db_aggregates_enabled = 'true';
+
 notify pgrst, 'reload schema';
 
 commit;
